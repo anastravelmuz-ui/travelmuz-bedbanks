@@ -1,0 +1,13 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>TravelMuz · Connexion</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/live.css"><link rel="stylesheet" href="/comptes.css"></head><body><header><a class="brand" href="/"><span class="brandmark">TM</span><span>TravelMuz <span class="brand-sub">agence</span></span></a><nav aria-label="Navigation principale"><a href="/">Comparateur</a><a href="/demo.html#reservations">Réservations · démo</a><a  href="/admin.html">Administration</a></nav><span class="private" id="who">Espace privé</span></header>
+<main class="account-page"><section class="account-card" aria-labelledby="t">
+<h1 id="t">Connexion</h1><p class="lead">Accès réservé aux agents TravelMuz.</p>
+<form id="login" novalidate><label>Email professionnel<input type="email" name="email" autocomplete="username" required></label>
+<label>Mot de passe<input type="password" name="password" autocomplete="current-password" required></label>
+<button class="btn" type="submit">Se connecter</button></form>
+<p id="login-msg" class="msg" role="alert" hidden></p>
+<div class="split"><button class="text-button" type="button" id="show-forgot">Mot de passe oublié ?</button>
+<form id="forgot" hidden novalidate><label>Votre email<input type="email" name="email" autocomplete="username" required></label><button class="btn secondary" type="submit">Demander un lien</button></form>
+<p id="forgot-msg" class="msg info" role="status" hidden></p><p><button class="text-button" type="button" id="show-setup">Première installation</button></p></div>
+<div class="split" id="first-run" hidden><p class="msg info">Première installation : si aucun compte n’existe encore, saisissez le code d’installation défini dans Cloudflare pour créer le compte administrateur (anas@travelmuz.fr).</p>
+<form id="bootstrap" novalidate><label>Code d’installation<input type="password" name="code" autocomplete="off" required></label><button class="btn secondary" type="submit">Créer le compte administrateur</button></form><div id="bootstrap-out"></div></div>
+</section></main><script type="module" src="/comptes.mjs"></script></body></html>

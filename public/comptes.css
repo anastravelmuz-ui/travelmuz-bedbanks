@@ -1,0 +1,18 @@
+.account-page{max-width:460px;margin:48px auto;padding:0 16px}
+.account-card{background:#fff;border:1px solid #e3e8ee;border-radius:24px;padding:28px;box-shadow:0 8px 30px rgba(14,30,60,.06)}
+.account-card h1{font-size:26px;margin:0 0 6px}.account-card p.lead{color:#65758a;margin:0 0 22px;line-height:1.5}
+.account-card form{display:grid;gap:14px}.account-card label{display:grid;gap:6px;font-weight:600;font-size:14px}
+.account-card input,.account-card select{font:inherit;padding:12px 14px;border:1px solid #cfd8e3;border-radius:14px;background:#fff}
+.account-card input:focus-visible,.account-card select:focus-visible,.btn:focus-visible,.text-button:focus-visible{outline:3px solid #9fdde2;outline-offset:2px}
+.btn{font:inherit;font-weight:700;border:0;border-radius:30px;padding:13px 20px;background:#0f1f3d;color:#fff;cursor:pointer}
+.btn.secondary{background:#e4f4f5;color:#0d808b}.btn.danger{background:#fdecec;color:#a32121}.btn:disabled{opacity:.55;cursor:wait}
+.msg{border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.5;margin:14px 0 0}.msg.err{background:#fdecec;color:#8a1c1c}.msg.ok{background:#e8f6ee;color:#155d36}.msg.info{background:#f4f6f8;color:#3c4b5e}
+.linkbox{display:flex;gap:8px;margin-top:10px}.linkbox input{flex:1;min-width:0;font-size:13px}
+.split{margin-top:22px;padding-top:18px;border-top:1px solid #e3e8ee}
+.admin-page{max-width:980px;margin:36px auto;padding:0 16px}
+.admin-grid{display:grid;grid-template-columns:1fr 2fr;gap:20px;align-items:start}
+.users{width:100%;border-collapse:collapse;font-size:14px}.users th,.users td{text-align:left;padding:12px 10px;border-bottom:1px solid #edf1f5;vertical-align:middle}
+.users th{color:#65758a;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;background:#f4f6f8;color:#3c4b5e}.tag.admin{background:#0f1f3d;color:#fff}.tag.off{background:#fdecec;color:#8a1c1c}.tag.wait{background:#fff6e0;color:#7a5600}
+.row-actions{display:flex;flex-wrap:wrap;gap:6px}.row-actions .btn{padding:7px 12px;font-size:13px}
+@media (max-width:760px){.admin-grid{grid-template-columns:1fr}.users thead{display:none}.users tr{display:grid;gap:6px;padding:12px 0;border-bottom:1px solid #edf1f5}.users td{border:0;padding:0 4px}}

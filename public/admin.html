@@ -1,0 +1,11 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>TravelMuz · Administration</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/live.css"><link rel="stylesheet" href="/comptes.css"></head><body><header><a class="brand" href="/"><span class="brandmark">TM</span><span>TravelMuz <span class="brand-sub">agence</span></span></a><nav aria-label="Navigation principale"><a href="/">Comparateur</a><a href="/demo.html#reservations">Réservations · démo</a><a class="selected" href="/admin.html">Administration</a></nav><span class="private" id="who">Espace privé</span></header>
+<main class="admin-page"><div class="page-heading"><div><p class="eyebrow">BACK-OFFICE</p><h1>Comptes agents</h1><p>Créez les accès, transmettez le lien d’activation, désactivez ou supprimez un compte.</p></div><button class="btn secondary" id="logout" type="button" hidden>Se déconnecter</button></div>
+<p id="admin-msg" class="msg" role="alert" hidden></p>
+<div class="admin-grid" id="admin" hidden>
+<section class="account-card" aria-labelledby="new"><h2 id="new">Nouveau compte</h2>
+<form id="create" novalidate><label>Email<input type="email" name="email" required></label>
+<label>Rôle<select name="role"><option value="agent">Agent</option><option value="admin">Administrateur</option></select></label>
+<button class="btn" type="submit">Créer et obtenir le lien</button></form><div id="create-out"></div></section>
+<section class="account-card" aria-labelledby="list"><h2 id="list">Comptes</h2><table class="users"><thead><tr><th>Email</th><th>Rôle</th><th>État</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table>
+<div id="row-out"></div></section></div>
+</main><script type="module" src="/comptes.mjs"></script></body></html>
