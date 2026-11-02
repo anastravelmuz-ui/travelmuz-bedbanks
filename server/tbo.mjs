@@ -47,7 +47,12 @@ export async function tboCities(countryCode, cfg, fetcher = fetch) {
 export async function tboHotels(cityCode, cfg, fetcher = fetch) {
   if (!/^\d{1,12}$/.test(String(cityCode))) throw new Error('CRITERIA_INVALID');
   const data = await post(cfg.base + '/TBOHotelCodeList', { CityCode: String(cityCode), IsDetailedResponse: false }, cfg, fetcher, 25000);
-  if (data?.Status?.Code !== 200 || !Array.isArray(data.Hotels)) throw new Error('SUPPLIER_INVALID_RESPONSE');
+  if (data?.Status?.Code !== 200 || !Array.isArray(data.Hotels)) {
+    const e = new Error('SUPPLIER_INVALID_RESPONSE');
+    // Diagnostic administrateur : statut fournisseur et clés reçues, sans contenu.
+    e.supplierStatus = { code: data?.Status?.Code ?? null, description: String(data?.Status?.Description ?? '').slice(0, 200), keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 10) : [] };
+    throw e;
+  }
   return data.Hotels.filter(h => h && h.HotelCode != null).map(h => ({
     code: String(h.HotelCode), name: h.HotelName ?? null, rating: h.HotelRating ?? null, address: h.Address ?? null,
     city: h.CityName ?? null, country: h.CountryCode ?? null, latitude: h.Latitude ?? null, longitude: h.Longitude ?? null,

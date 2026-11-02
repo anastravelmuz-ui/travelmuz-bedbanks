@@ -110,7 +110,7 @@ async function adminTbo(request, env, user, path, url) {
   } catch (e) {
     const m = e instanceof Error ? e.message : '';
     if (m === 'CRITERIA_INVALID') return json({ error: 'INVALID_CRITERIA' }, 400);
-    return json({ error: supplierError(e) }, 502);
+    return json({ error: supplierError(e), ...(e?.supplierStatus ? { supplierStatus: e.supplierStatus } : {}) }, 502);
   }
   return json({ error: 'NOT_FOUND' }, 404);
 }
