@@ -46,7 +46,7 @@ export async function tboCities(countryCode, cfg, fetcher = fetch) {
 }
 export async function tboHotels(cityCode, cfg, fetcher = fetch) {
   if (!/^\d{1,12}$/.test(String(cityCode))) throw new Error('CRITERIA_INVALID');
-  const data = await post(cfg.base + '/TBOHotelCodeList', { CityCode: String(cityCode), IsDetailedResponse: false }, cfg, fetcher, 25000);
+  const data = await post(cfg.base + '/TBOHotelCodeList', { CityCode: String(cityCode), IsDetailedResponse: 'true' } /* format texte, comme les exemples TBO */, cfg, fetcher, 25000);
   if (data?.Status?.Code !== 200 || !Array.isArray(data.Hotels)) {
     const e = new Error('SUPPLIER_INVALID_RESPONSE');
     // Diagnostic administrateur : statut fournisseur et clés reçues, sans contenu.
