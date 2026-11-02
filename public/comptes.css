@@ -16,3 +16,7 @@
 .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;background:#f4f6f8;color:#3c4b5e}.tag.admin{background:#0f1f3d;color:#fff}.tag.off{background:#fdecec;color:#8a1c1c}.tag.wait{background:#fff6e0;color:#7a5600}
 .row-actions{display:flex;flex-wrap:wrap;gap:6px}.row-actions .btn{padding:7px 12px;font-size:13px}
 @media (max-width:760px){.admin-grid{grid-template-columns:1fr}.users thead{display:none}.users tr{display:grid;gap:6px;padding:12px 0;border-bottom:1px solid #edf1f5}.users td{border:0;padding:0 4px}}
+.mapping-card{margin-top:20px}.mapping-card .lead{margin-bottom:16px}
+.map-row{display:flex!important;flex-wrap:wrap;gap:12px;align-items:end;margin-top:14px}.map-row label{flex:1;min-width:140px}
+.map-list{display:grid;gap:8px;margin-top:12px}.map-item{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #e3e8ee;border-radius:14px;padding:12px 14px;font-size:14px}
+.map-item small{display:block;color:#65758a;margin-top:3px}.map-item .btn{padding:8px 14px;font-size:13px;white-space:nowrap}

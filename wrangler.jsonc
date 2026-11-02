@@ -15,8 +15,12 @@
     // database_id absent : Wrangler crée la base au premier déploiement (provisionnement automatique).
     { "binding": "DB", "database_name": "travelmuz-bedbanks" }
   ],
+  "vars": {
+    // TBO staging (D-013) ; la production remplacera ces URL en fin de projet.
+    "TBO_BASE_URL": "https://api.tbotechnology.in/TBOHolidays_HotelAPI"
+  },
   "observability": { "enabled": true },
   "workers_dev": true
   // Secrets à saisir dans Cloudflare (Paramètres > Variables et secrets), jamais dans ce fichier :
-  // HALALBOOKING_PARTNER_CODE, HALALBOOKING_SECRET_KEY, SETUP_CODE
+  // HALALBOOKING_PARTNER_CODE, HALALBOOKING_SECRET_KEY, SETUP_CODE, TBO_USERNAME, TBO_PASSWORD
 }

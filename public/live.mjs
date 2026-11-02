@@ -1,5 +1,6 @@
 // Comparateur Halalbooking réel : recherche par chambres (adultes, enfants et âges), net agence fourni, filtres locaux.
 import { filterOffers, cancellationState, cutoffLabel } from './live-core.mjs';
+import { tboCancellationState } from './tbo-core.mjs';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -8,6 +9,8 @@ const money = n => typeof n === 'number' && Number.isFinite(n) ? new Intl.Number
 const nightsBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
 let snapshot = null, loading = false;
+let tbo = null; // { status, offers, currency…, nationality } ou { error }
+const moneyIn = (n, cur) => { try { return typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur || 'EUR' }).format(n) : 'Montant non renseigné'; } catch { return `${n} ${cur ?? ''}`; } };
 let rooms = [{ adults: 2, children: [] }];
 let draft = null;
 
@@ -19,6 +22,9 @@ const ERRORS = {
   ADULTS_INVALID: 'Chaque chambre doit compter de 1 à 6 adultes.',
   CHILDREN_INVALID: '4 enfants maximum par chambre.',
   CHILD_AGE_INVALID: 'Indiquez l’âge de chaque enfant.',
+  NATIONALITY_INVALID: 'Choisissez la nationalité du client principal (demandée par TBO).',
+  INSECURE_ENDPOINT: 'Adresse TBO non sécurisée : recherche bloquée.',
+  SUPPLIER_INVALID_RESPONSE: 'Réponse du fournisseur illisible. Aucun tarif fictif ne la remplace.',
   CHILD_AGE_OVER_12: 'Halalbooking accepte les enfants jusqu’à 12 ans : comptez les plus âgés comme adultes.',
   AUTHENTICATION_REQUIRED: 'Session expirée : reconnectez-vous.',
   CONFIGURATION_MISSING: 'Les accès Halalbooking ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
@@ -99,7 +105,57 @@ function card(o) {
     <p>Commission annoncée : ${o.commissionPercent != null ? esc(o.commissionPercent) + ' %' : 'non renseignée'}. Prix de recherche : commission et net peuvent évoluer à la vérification ou à la réservation. Frais payables sur place non inclus dans le net.</p>
     ${rulesText(o.cancellation)}<p>Horaires et décalages UTC fournis par Halalbooking, conservés sans conversion.</p></details></article>`;
 }
+
+// ---- TBO ----
+const TBO_ERRORS = {
+  CONFIGURATION_MISSING: 'Les accès TBO ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
+  SUPPLIER_AUTH_FAILED: 'TBO a refusé l’accès (identifiants). Ce n’est pas une absence de chambres.',
+  SUPPLIER_UNREACHABLE: 'TBO est injoignable pour le moment. Réessayez plus tard. Ce n’est pas une absence de chambres.',
+  SUPPLIER_ERROR: 'TBO a renvoyé une erreur. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.',
+  CHILD_AGE_INVALID: 'Âge d’enfant non accepté par TBO.',
+};
+function tboRules(o) {
+  if (o.isRefundable === false) return '<p>Non remboursable selon TBO.</p>';
+  if (!o.cancelPolicies?.length) return '<p>Conditions d’annulation non renseignées : à vérifier auprès de TBO.</p>';
+  return '<ul>' + o.cancelPolicies.map(p => `<li>${p.roomIndex ? `Chambre ${esc(p.roomIndex)} · ` : ''}à partir du ${esc(p.from ?? 'date non renseignée')} <span class="tbo-warn">(fuseau horaire non précisé par TBO)</span> : ${typeof p.charge === 'number' ? (p.type === 'Percentage' ? `${p.charge} %` : moneyIn(p.charge, o.currency)) : 'frais à vérifier'}${p.type && !['Percentage', 'Fixed'].includes(p.type) ? ` (${esc(p.type)})` : ''}.</li>`).join('') + '</ul>';
+}
+function tboCard(o) {
+  const atProperty = o.supplementsAtProperty ?? [];
+  return `<article class="live-card"><div><span class="tag">TBO · staging</span><h3>${o.roomNames.length ? o.roomNames.map((n, i) => o.roomNames.length > 1 ? `Ch. ${i + 1} : ${esc(n)}` : esc(n)).join('<br>') : 'Chambre non renseignée'}</h3>
+    <p>${esc(o.meal ?? 'Pension non renseignée')}${o.inclusion ? ' · ' + esc(o.inclusion) : ''}</p>
+    <p>${labels[tboCancellationState(o)]}${tboCancellationState(o) === 'unknown' && o.isRefundable ? ' (échéance proche ou fuseau incertain)' : ''}</p>
+    ${atProperty.length ? `<p class="tbo-warn">À payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}${x.roomIndex ? ` (ch. ${esc(x.roomIndex)})` : ''}`).join(' · ')}</p>` : ''}</div>
+    <div class="live-price">${moneyIn(o.price, o.currency)}<small>Montant TBO · total séjour, toutes chambres</small>${typeof o.tax === 'number' ? `<small>dont taxes ${moneyIn(o.tax, o.currency)}</small>` : ''}${o.recommendedSellingRate ? `<small>Prix de vente minimum conseillé : ${moneyIn(o.recommendedSellingRate, o.currency)}</small>` : ''}</div>
+    <details><summary>Annulation et détails</summary>${tboRules(o)}${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.withTransfers ? '<p>Transferts inclus.</p>' : ''}<p>Aucune équivalence de chambre avec Halalbooking n’est présumée.</p></details></article>`;
+}
+function renderTbo() {
+  const box = $('#tbo-offers');
+  if (!tbo) { box.innerHTML = '<div class="empty">Lancez une recherche.</div>'; return; }
+  if (tbo.loading) { box.innerHTML = '<div class="empty">Recherche TBO en cours…</div>'; return; }
+  if (tbo.error) { box.innerHTML = `<div class="empty">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.')}</div>`; return; }
+  if (tbo.status === 'not_mapped') { box.innerHTML = '<div class="empty">Cet hôtel n’est pas encore associé à un code TBO. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>'; return; }
+  const f = filters();
+  const items = tbo.offers.filter(o => (!f.refund || tboCancellationState(o) === f.refund) && (f.budget === '' || f.budget == null || (typeof o.price === 'number' && o.price <= Number(f.budget))))
+    .sort((a, b) => (f.sort === 'desc' ? -1 : 1) * ((a.price ?? Infinity) - (b.price ?? Infinity)));
+  if (!tbo.offers.length) { box.innerHTML = '<div class="empty">TBO n’a retourné aucune disponibilité pour ces critères.</div>'; return; }
+  box.innerHTML = items.length ? items.map(tboCard).join('') : '<div class="empty">Aucune offre TBO ne correspond à ces filtres.</div>';
+}
+function renderSummary() {
+  const box = $('#provider-summary');
+  const parts = [];
+  if (snapshot?.offers?.length) {
+    const perRoom = snapshot.criteria.rooms.map((_, i) => snapshot.offers.filter(o => (o.roomIndex ?? 0) === i && typeof o.netPrice === 'number').map(o => o.netPrice));
+    if (perRoom.every(l => l.length)) parts.push(`<div>Halalbooking · net agence dès<strong>${money(perRoom.reduce((s, l) => s + Math.min(...l), 0))}</strong>offre la moins chère de chaque chambre, EUR</div>`);
+  }
+  if (tbo?.offers?.length) {
+    const cheapest = tbo.offers.filter(o => typeof o.price === 'number').sort((a, b) => a.price - b.price)[0];
+    if (cheapest) parts.push(`<div>TBO · montant dès<strong>${moneyIn(cheapest.price, cheapest.currency)}</strong>toutes chambres, ${esc(cheapest.currency ?? 'devise inconnue')} · nature nette à confirmer</div>`);
+  }
+  box.hidden = !parts.length;
+  box.innerHTML = parts.join('') + (parts.length > 1 ? '<div>Comparaison indicative : pensions, chambres, conditions et devises non harmonisées. Aucun meilleur prix n’est désigné.</div>' : '');
+}
 function render() {
+  renderTbo(); renderSummary();
   if (!snapshot) return;
   const items = filterOffers(snapshot.offers, filters());
   $('#result-count').textContent = `${items.length} offre(s) affichée(s) sur ${snapshot.offers.length} reçue(s)`;
@@ -118,7 +174,8 @@ function clearFilters() { for (const id of ['meal', 'refund', 'room', 'budget'])
 function markPending() {
   const n = nightsBetween($('#live-in').value, $('#live-out').value);
   $('#live-nights').textContent = Number.isFinite(n) && n > 0 ? `${n} nuit${n > 1 ? 's' : ''}` : 'Dates à vérifier';
-  $('#pending').hidden = !snapshot || JSON.stringify(criteria()) === JSON.stringify(snapshot.criteria);
+  const natChanged = !!(tbo?.nationality && tbo.nationality !== $('#live-nationality').value);
+  $('#pending').hidden = !snapshot || (JSON.stringify(criteria()) === JSON.stringify(snapshot.criteria) && !natChanged);
 }
 
 $('#clear').onclick = clearFilters;
@@ -135,6 +192,15 @@ $('#live-search').onsubmit = async e => {
   $('#live-offers').innerHTML = ''; $('#result-count').textContent = ''; $('#criteria').textContent = '';
   $('#results-title').textContent = 'Recherche Halalbooking'; $('#pending').hidden = true; $('#live-error').textContent = '';
   $('#live-status').textContent = 'Recherche en cours…'; $('#hb-status').textContent = 'Recherche en cours'; $('#live-submit').disabled = true;
+  const nationality = $('#live-nationality').value;
+  tbo = { loading: true }; renderTbo(); $('#tbo-status').textContent = 'Recherche en cours';
+  const tboRun = fetch('/api/tbo/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...q, nationality }) })
+    .then(async r => { const d = await r.json().catch(() => ({})); tbo = r.ok ? d : { error: d.detail || d.error || 'SUPPLIER_ERROR' }; })
+    .catch(() => { tbo = { error: 'NETWORK' }; })
+    .finally(() => {
+      $('#tbo-status').textContent = tbo.error ? 'Erreur de recherche' : tbo.status === 'not_mapped' ? 'Hôtel non associé' : `${tbo.offers.length} offre(s) reçue(s) · staging`;
+      renderTbo(); renderSummary();
+    });
   try {
     const r = await fetch('/api/halalbooking/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
     const data = await r.json();
@@ -154,6 +220,8 @@ $('#live-search').onsubmit = async e => {
     $('#hb-status').textContent = 'Erreur de recherche';
     $('#live-status').textContent = 'Aucun résultat exploitable pour cette recherche.';
   } finally {
+    renderSummary();
+    await tboRun;
     loading = false; $('#live-submit').disabled = false;
   }
 };

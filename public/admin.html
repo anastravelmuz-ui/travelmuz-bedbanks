@@ -8,4 +8,13 @@
 <button class="btn" type="submit">Créer et obtenir le lien</button></form><div id="create-out"></div></section>
 <section class="account-card" aria-labelledby="list"><h2 id="list">Comptes</h2><table class="users"><thead><tr><th>Email</th><th>Rôle</th><th>État</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table>
 <div id="row-out"></div></section></div>
-</main><script type="module" src="/comptes.mjs"></script></body></html>
+<section class="account-card mapping-card" id="mapping" hidden aria-labelledby="map-title"><h2 id="map-title">Correspondance des hôtels · TBO</h2>
+<p class="lead">TBO utilise ses propres codes d’hôtel. Associez chaque hôtel à son code TBO après avoir vérifié le nom, l’adresse et la catégorie. Aucune association n’est faite automatiquement.</p>
+<label>Hôtel TravelMuz (référence Halalbooking)<select id="map-hotel"><option value="4" data-name="Deluxe Golden Horn Sultanahmet">Deluxe Golden Horn Sultanahmet · Istanbul</option></select></label>
+<div id="map-current" class="msg info"></div>
+<form id="map-city-form" class="map-row" novalidate><label>Pays (code ISO)<input name="country" value="TR" maxlength="2" required></label><label>Ville<input name="q" value="Istanbul" required></label><button class="btn secondary" type="submit">Chercher la ville</button></form>
+<div id="map-cities" class="map-list"></div>
+<form id="map-hotel-form" class="map-row" hidden novalidate><label>Nom de l’hôtel contient<input name="q" value="Golden Horn"></label><button class="btn secondary" type="submit">Chercher l’hôtel</button></form>
+<p id="map-msg" class="msg" role="status" hidden></p>
+<div id="map-hotels" class="map-list"></div></section>
+</main><script type="module" src="/comptes.mjs"></script><script type="module" src="/admin-hotels.mjs"></script></body></html>

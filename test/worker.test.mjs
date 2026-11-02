@@ -76,3 +76,47 @@ test('Worker : base absente → comptes indisponibles, pages fermées', async ()
   assert.equal((await route(call('/'), e)).status, 302);
   assert.equal((await route(call('/api/auth/me', { accept: 'application/json' }), e)).status, 503);
 });
+
+test('Worker : correspondance hôtels (admin) et recherche TBO', async t => {
+  const { setStoreFactory } = await import('../server/auth-store-d1.mjs');
+  const { createMemoryMapStore } = await import('../server/hotel-map.mjs');
+  const store = createMemoryStore();
+  setStoreFactory(db => (db.__memory ? db.__memory : null));
+  const realFetch = globalThis.fetch;
+  t.after(() => { setStoreFactory(null); globalThis.fetch = realFetch; });
+  const e = env({ DB: { __memory: store, __mapMemory: createMemoryMapStore() } });
+  // comptes : admin + agent
+  const boot = await route(call('/api/auth/bootstrap', { method: 'POST', body: { code: CODE } }), e);
+  await route(call('/api/auth/set-password', { method: 'POST', body: { token: (await boot.json()).link.split('#t=')[1], password: PWD } }), e);
+  const adminCookie = (await route(call('/api/auth/login', { method: 'POST', body: { email: 'anas@travelmuz.fr', password: PWD } }), e)).headers.get('set-cookie').split(';')[0];
+  const c = await route(call('/api/admin', { method: 'POST', cookie: adminCookie, body: { action: 'create', email: 'myriam@travelmuz.fr', role: 'agent' } }), e);
+  await route(call('/api/auth/set-password', { method: 'POST', body: { token: (await c.json()).link.split('#t=')[1], password: PWD } }), e);
+  const agentCookie = (await route(call('/api/auth/login', { method: 'POST', body: { email: 'myriam@travelmuz.fr', password: PWD } }), e)).headers.get('set-cookie').split(';')[0];
+
+  const crit = { hotelId: 4, checkin: '2027-03-04', checkout: '2027-03-07', country: 'FR', nationality: 'FR', rooms: [{ adults: 2, children: [5] }] };
+  // sans identifiants TBO
+  assert.equal((await (await route(call('/api/tbo/search', { method: 'POST', cookie: agentCookie, body: crit }), e)).json()).error, 'CONFIGURATION_MISSING');
+  const e2 = { ...e, TBO_USERNAME: 'u', TBO_PASSWORD: 'p', TBO_BASE_URL: 'https://tbo.example.test/api' };
+  // nationalité obligatoire et distincte
+  assert.equal((await (await route(call('/api/tbo/search', { method: 'POST', cookie: agentCookie, body: { ...crit, nationality: undefined } }), e2)).json()).detail, 'NATIONALITY_INVALID');
+  // hôtel non associé : pas d'appel fournisseur
+  globalThis.fetch = async () => { throw new Error('ne doit pas être appelé'); };
+  assert.equal((await (await route(call('/api/tbo/search', { method: 'POST', cookie: agentCookie, body: crit }), e2)).json()).status, 'not_mapped');
+  // l'agent ne peut pas gérer les correspondances
+  assert.equal((await route(call('/api/admin/mappings', { method: 'POST', cookie: agentCookie, body: { action: 'set', hbPlaceId: 4, provider: 'tbo', code: '55' } }), e2)).status, 403);
+  assert.equal((await route(call('/api/admin/tbo/cities?country=TR', { cookie: agentCookie, accept: 'application/json' }), e2)).status, 403);
+  assert.equal((await route(call('/api/admin/mappings', { method: 'POST', cookie: adminCookie, body: { action: 'set', hbPlaceId: 4, provider: 'tbo', code: 'abc' } }), e2)).status, 400);
+  const set = await route(call('/api/admin/mappings', { method: 'POST', cookie: adminCookie, body: { action: 'set', hbPlaceId: 4, provider: 'tbo', code: '55', name: 'Deluxe Golden Horn Sultanahmet' } }), e2);
+  assert.equal((await set.json()).mapping.validatedBy, 'anas@travelmuz.fr');
+  // recherche TBO réelle simulée
+  let sent;
+  globalThis.fetch = async (u, init) => { sent = { url: String(u), body: JSON.parse(init.body) }; return Response.json({ Status: { Code: 200 }, HotelResult: [{ HotelCode: '55', Currency: 'EUR', Rooms: [{ Name: ['Family'], TotalFare: 700, IsRefundable: true, MealType: 'BreakFast', CancelPolicies: [] }] }] }); };
+  const r = await (await route(call('/api/tbo/search', { method: 'POST', cookie: agentCookie, body: crit }), e2)).json();
+  assert.equal(sent.url, 'https://tbo.example.test/api/Search');
+  assert.equal(sent.body.HotelCodes, '55');
+  assert.deepEqual([r.status, r.offers[0].price, r.mapping.code], ['ok', 700, '55']);
+  // villes via l'admin
+  globalThis.fetch = async () => Response.json({ Status: { Code: 200 }, CityList: [{ Code: '1', Name: 'Istanbul' }, { Code: '2', Name: 'Ankara' }] });
+  const cities = await (await route(call('/api/admin/tbo/cities?country=TR&q=ist', { cookie: adminCookie, accept: 'application/json' }), e2)).json();
+  assert.deepEqual(cities.cities, [{ code: '1', name: 'Istanbul' }]);
+});
