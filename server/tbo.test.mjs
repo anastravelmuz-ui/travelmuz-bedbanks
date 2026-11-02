@@ -11,7 +11,7 @@ const sample = { Status: { Code: 200, Description: 'Successful' }, HotelResult: 
 
 test('configuration : identifiants et URL requis', () => {
   assert.equal(tboConfig({}), null);
-  assert.equal(tboConfig({ TBO_USERNAME: 'u', TBO_PASSWORD: 'p' }), null);
+  assert.equal(tboConfig({ TBO_USERNAME: 'u', TBO_PASSWORD: 'p' }).base, 'https://api.tbotechnology.in/TBOHolidays_HotelAPI'); // repli staging
   assert.deepEqual(tboConfig({ TBO_USERNAME: 'u', TBO_PASSWORD: 'p', TBO_BASE_URL: 'https://x.test/api/' }).search, 'https://x.test/api');
 });
 

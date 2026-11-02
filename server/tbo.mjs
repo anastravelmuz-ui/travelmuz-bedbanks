@@ -5,9 +5,12 @@
 export const TBO_ERRORS = ['CONFIGURATION_MISSING', 'INSECURE_ENDPOINT', 'SUPPLIER_AUTH_FAILED', 'SUPPLIER_UNREACHABLE', 'SUPPLIER_INVALID_RESPONSE', 'SUPPLIER_ERROR'];
 const MAX_CHILD_AGE = 17; // TBO : enfants 0–18 ans selon la documentation ; 18 ans compté comme adulte par prudence.
 
+// Adresse staging TBO (D-013, HTTPS vérifié le 2/11/2026) ; la production la remplacera via TBO_BASE_URL.
+export const TBO_STAGING_URL = 'https://api.tbotechnology.in/TBOHolidays_HotelAPI';
+
 /** Configuration serveur : URL HTTPS obligatoire, identifiants en secrets Cloudflare. */
 export function tboConfig(env) {
-  const base = String(env?.TBO_BASE_URL ?? '').replace(/\/+$/, '');
+  const base = String(env?.TBO_BASE_URL || TBO_STAGING_URL).replace(/\/+$/, '');
   const search = String(env?.TBO_SEARCH_URL ?? '').replace(/\/+$/, '') || base;
   if (!env?.TBO_USERNAME || !env?.TBO_PASSWORD || !base) return null;
   return { base, search, username: env.TBO_USERNAME, password: env.TBO_PASSWORD };
