@@ -3,7 +3,7 @@
 import { createAuth } from '../server/auth-core.mjs';
 import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
-import { validateSearch, searchHalalbooking } from '../server/halalbooking.mjs';
+import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
 
 export const FIRST_ADMIN_EMAIL = 'anas@travelmuz.fr'; // D-015
 
@@ -37,7 +37,7 @@ async function halalbookingSearch(request, env, user) {
   if (Number(request.headers.get('content-length') ?? 0) > 4096) return json({ error: 'BODY_TOO_LARGE' }, 413);
   let criteria;
   try { const raw = await request.text(); if (raw.length > 4096) throw new Error(); criteria = validateSearch(JSON.parse(raw)); }
-  catch { return json({ error: 'INVALID_CRITERIA' }, 400); }
+  catch (e) { const detail = e instanceof Error && CRITERIA_ERRORS.includes(e.message) ? e.message : 'CRITERIA_INVALID'; return json({ error: 'INVALID_CRITERIA', detail }, 400); }
   try {
     return json(await searchHalalbooking(criteria, { partner: env.HALALBOOKING_PARTNER_CODE, secret: env.HALALBOOKING_SECRET_KEY }));
   } catch (e) {
