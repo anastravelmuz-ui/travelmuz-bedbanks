@@ -19,6 +19,8 @@
     // TBO staging (D-013) ; la production remplacera ces URL en fin de projet.
     "TBO_BASE_URL": "https://api.tbotechnology.in/TBOHolidays_HotelAPI"
   },
+  // Ne jamais effacer au déploiement les variables saisies dans le tableau de bord Cloudflare.
+  "keep_vars": true,
   "observability": { "enabled": true },
   "workers_dev": true
   // Secrets à saisir dans Cloudflare (Paramètres > Variables et secrets), jamais dans ce fichier :
