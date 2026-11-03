@@ -98,6 +98,7 @@ export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch,
     offers.push({
       provider: 'TBO', hotelCode: String(hotel.HotelCode ?? hotelCode), currency: hotel.Currency ?? null,
       roomNames: Array.isArray(room.Name) ? room.Name.map(String) : [],
+      roomIds: (Array.isArray(room.RoomID) ? room.RoomID : room.RoomID != null ? [room.RoomID] : []).map(String),
       meal: mealLabel(room.MealType), mealCode: mealCodeFromTbo(room.MealType), supplierMealType: room.MealType ?? null, inclusion: room.Inclusion ?? null,
       price: typeof room.TotalFare === 'number' ? room.TotalFare : null, // total de l'unité réservable, toutes chambres
       tax: typeof room.TotalTax === 'number' ? room.TotalTax : null,
@@ -131,13 +132,24 @@ export async function tboHotelDetails(hotelCode, cfg, fetcher = fetch) {
     throw e;
   }
   const roomsRaw = h.RoomDetails ?? h.Rooms ?? h.RoomDetail ?? null;
+  const text = v => (typeof v === 'string' ? v.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600) : null);
   const rooms = (Array.isArray(roomsRaw) ? roomsRaw : []).map(r => ({
     id: r.RoomId ?? r.RoomID ?? r.Id ?? null, name: r.RoomName ?? r.Name ?? null,
-    images: imgList(r.Images ?? r.RoomImages ?? r.Image ?? r.imageURL),
-  }));
+    size: r.RoomSize != null && r.RoomSize !== '' ? String(r.RoomSize).slice(0, 60) : null, description: text(r.RoomDescription),
+    images: imgList(r.Images ?? r.RoomImages ?? r.Image ?? r.imageURL).slice(0, 8),
+  })).filter(r => r.id != null).map(r => ({ ...r, id: String(r.id) }));
   return {
     code: String(h.HotelCode ?? hotelCode), name: h.HotelName ?? null, hotelImages: imgList(h.Images), rooms,
     // Diagnostic : structure reçue, sans contenu
     structure: { hotelKeys: Object.keys(h).slice(0, 40), roomKeys: Array.isArray(roomsRaw) && roomsRaw[0] ? Object.keys(roomsRaw[0]).slice(0, 40) : [] },
   };
+}
+
+/** Enrichit les offres de recherche avec les fiches chambres (photos, superficie) par identifiant RoomID. */
+export function attachRoomDetails(offers, details) {
+  const byId = new Map((details?.rooms ?? []).map(r => [r.id, r]));
+  return offers.map(o => {
+    const found = (o.roomIds ?? []).map(id => byId.get(String(id)) ?? null);
+    return { ...o, roomDetails: found.map(r => (r ? { name: r.name, size: r.size, description: r.description, images: r.images } : null)) };
+  });
 }

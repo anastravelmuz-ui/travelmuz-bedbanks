@@ -93,6 +93,19 @@ test('HotelDetails : images hôtel et chambre (HTTPS), structure de diagnostic',
     return Response.json({ Status: { Code: 200 }, HotelDetails: [{ HotelCode: '1235939', HotelName: 'Deluxe Golden Horn', Images: ['https://api.tbotechnology.in/imageresource.aspx?img=a', 'http://x/b'], RoomDetails: [{ RoomId: '9', RoomName: 'Standard', Images: ['https://img.test/r.jpg'] }] }] });
   });
   assert.deepEqual(d.hotelImages, ['https://api.tbotechnology.in/imageresource.aspx?img=a']);
-  assert.deepEqual(d.rooms, [{ id: '9', name: 'Standard', images: ['https://img.test/r.jpg'] }]);
+  assert.deepEqual(d.rooms, [{ id: '9', name: 'Standard', size: null, description: null, images: ['https://img.test/r.jpg'] }]);
   assert.deepEqual(d.structure.roomKeys, ['RoomId', 'RoomName', 'Images']);
+});
+
+import { attachRoomDetails } from './tbo.mjs';
+import { cachedDetails, createMemoryDetailsCache, DETAILS_TTL_MS } from './tbo-cache.mjs';
+test('fiches chambres rattachées par RoomID ; cache 15 jours ; panne de fiche sans effet', async () => {
+  const offers = attachRoomDetails([{ roomIds: ['9', '404'], roomNames: ['A', 'B'] }], { rooms: [{ id: '9', name: 'Standard', size: '22 m²', description: 'Lit double', images: ['https://i.test/1.jpg'] }] });
+  assert.deepEqual(offers[0].roomDetails, [{ name: 'Standard', size: '22 m²', description: 'Lit double', images: ['https://i.test/1.jpg'] }, null]);
+  const cache = createMemoryDetailsCache(); let loads = 0;
+  const load = async () => { loads++; return { rooms: [] }; };
+  await cachedDetails(cache, '1', load); await cachedDetails(cache, '1', load);
+  assert.equal(loads, 1);
+  await cachedDetails(cache, '1', load, Date.now() + DETAILS_TTL_MS + 1); assert.equal(loads, 2);
+  assert.equal(await cachedDetails(cache, '2', async () => { throw new Error('TBO'); }), null);
 });

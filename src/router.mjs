@@ -4,7 +4,8 @@ import { createAuth } from '../server/auth-core.mjs';
 import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
-import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, TBO_ERRORS } from '../server/tbo.mjs';
+import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
+import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
 
 // Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
 const ALLOW_NON_EUR = true;
@@ -75,6 +76,11 @@ async function tboSearch(request, env, user) {
   if (!mapping) return json({ provider: 'TBO', status: 'not_mapped', offers: [], observedAt: new Date().toISOString() });
   try {
     const r = await searchTbo(criteria, mapping.code, body.nationality, cfg, fetch, { allowNonEur: ALLOW_NON_EUR });
+    if (r.offers.length) {
+      const details = await cachedDetails(env.DB ? createDetailsCache(env.DB) : null, mapping.code, () => tboHotelDetails(mapping.code, cfg));
+      if (details) r.offers = attachRoomDetails(r.offers, details);
+      r.detailsAvailable = !!details;
+    }
     return json({ ...r, criteria, mapping: { code: mapping.code, name: mapping.name } });
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }

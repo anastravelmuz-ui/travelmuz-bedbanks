@@ -122,6 +122,15 @@ function tboRules(o) {
   if (!o.cancelPolicies?.length) return '<p>Conditions d’annulation non renseignées : à vérifier auprès de TBO.</p>';
   return '<ul>' + o.cancelPolicies.map(p => `<li>${p.roomIndex ? `Chambre ${esc(p.roomIndex)} · ` : ''}à partir du ${esc(p.from ?? 'date non renseignée')} <span class="tbo-warn">(fuseau horaire non précisé par TBO)</span> : ${typeof p.charge === 'number' ? (p.type === 'Percentage' ? `${p.charge} %` : moneyIn(p.charge, o.currency)) : 'frais à vérifier'}${p.type && !['Percentage', 'Fixed'].includes(p.type) ? ` (${esc(p.type)})` : ''}.</li>`).join('') + '</ul>';
 }
+function tboPhotos(o) {
+  const imgs = (o.roomDetails ?? []).flatMap((d, i) => (d?.images ?? []).map(u => ({ u, label: `${o.roomNames[i] ?? d.name ?? 'Chambre'}` })));
+  const unique = [...new Map(imgs.map(x => [x.u, x])).values()].slice(0, 8);
+  return unique.length ? `<div class="room-photos">${unique.map((x, k) => `<a href="${esc(x.u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(x.u)}" alt="${esc(x.label)} · photo ${k + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : '';
+}
+function tboRoomFacts(o) {
+  const facts = (o.roomDetails ?? []).map((d, i) => d && (d.size || d.description) ? `<p>${o.roomNames.length > 1 ? `Ch. ${i + 1} · ` : ''}${d.size ? `Superficie TBO : ${esc(d.size)}` : ''}${d.size && d.description ? ' · ' : ''}${d.description ? esc(d.description) : ''}</p>` : '').join('');
+  return facts || '<p>Fiche chambre TBO non disponible : superficie et literie à vérifier.</p>';
+}
 function tboCard(o) {
   const atProperty = o.supplementsAtProperty ?? [];
   return `<article class="live-card"><div><span class="tag">TBO · staging</span><h3>${o.roomNames.length ? o.roomNames.map((n, i) => o.roomNames.length > 1 ? `Ch. ${i + 1} : ${esc(n)}` : esc(n)).join('<br>') : 'Chambre non renseignée'}</h3>
@@ -129,7 +138,8 @@ function tboCard(o) {
     <p>${labels[tboCancellationState(o)]}${tboCancellationState(o) === 'unknown' && o.isRefundable ? ' (échéance proche ou fuseau incertain)' : ''}</p>
     ${atProperty.length ? `<p class="tbo-warn">À payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}${x.roomIndex ? ` (ch. ${esc(x.roomIndex)})` : ''}`).join(' · ')}</p>` : ''}</div>
     <div class="live-price">${moneyIn(o.price, o.currency)}<small>Montant TBO · total séjour, toutes chambres</small>${typeof o.tax === 'number' ? `<small>dont taxes ${moneyIn(o.tax, o.currency)}</small>` : ''}${o.recommendedSellingRate ? `<small>Prix de vente minimum conseillé : ${moneyIn(o.recommendedSellingRate, o.currency)}</small>` : ''}</div>
-    <details><summary>Annulation et détails</summary>${tboRules(o)}${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.withTransfers ? '<p>Transferts inclus.</p>' : ''}<p>Aucune équivalence de chambre avec Halalbooking n’est présumée.</p></details></article>`;
+    ${tboPhotos(o)}
+    <details><summary>Chambre, annulation et détails</summary>${tboRoomFacts(o)}${tboRules(o)}${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.withTransfers ? '<p>Transferts inclus.</p>' : ''}<p>Aucune équivalence de chambre avec Halalbooking n’est présumée.</p></details></article>`;
 }
 
 // ---- Cartouches fournisseurs ----
@@ -187,7 +197,7 @@ function panelBody(id) {
   const amount = p.currency === 'EUR' ? money(p.total).replace('€', '<small>€</small>') : esc(moneyIn(p.total, p.currency));
   return { top: p.currency === 'EUR' ? 'STAGING · DONNÉES DE TEST' : `STAGING · DEVISE ${p.currency ?? '?'} (TEST)`, count: p.offers.length, html: `<div class="price">${amount}</div>
     <div class="price-label">Montant TBO · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Nature nette à confirmer avec TBO</div>${p.currency !== 'EUR' ? `<div class="secondary-amount tbo-warn">Devise ${esc(p.currency ?? 'inconnue')} : affichée temporairement pour les tests, non comparée à l’euro.</div>` : ''}
-    <div class="room-info"><strong>${o.roomNames.length ? o.roomNames.map((n, i) => (o.roomNames.length > 1 ? `Ch. ${i + 1} : ` : '') + esc(n)).join('<br>') : 'Chambre non renseignée'}</strong>
+    <div class="room-info">${o.roomDetails?.find(d => d?.images?.length) ? `<img class="panel-photo" src="${esc(o.roomDetails.find(d => d?.images?.length).images[0])}" alt="${esc(o.roomNames[0] ?? 'Chambre')}" loading="lazy" referrerpolicy="no-referrer">` : ''}<strong>${o.roomNames.length ? o.roomNames.map((n, i) => (o.roomNames.length > 1 ? `Ch. ${i + 1} : ` : '') + esc(n)).join('<br>') : 'Chambre non renseignée'}</strong>
     ${mealLine(o.meal, o.mealCode)}${tboCondition(o)}<p>${typeof o.tax === 'number' ? `Dont taxes ${moneyIn(o.tax, o.currency)}` : 'Taxes non détaillées'}${atProperty.length ? ` · <span class="tbo-warn">à payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}`).join(', ')}</span>` : ''}</p></div>` };
 }
 
