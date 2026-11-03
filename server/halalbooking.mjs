@@ -1,6 +1,6 @@
 import { mealCodeFromText } from '../public/meal-core.mjs';
 // Codes d'erreur de critères exposables au navigateur (aucune donnée fournisseur).
-export const CRITERIA_ERRORS = ['CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12'];
+export const CRITERIA_ERRORS = ['LOCATION_INVALID', 'CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12'];
 const fail = code => { throw new Error(code); };
 /**
  * Critères : hôtel, dates, pays du client et chambres [{adults, children:[âges à la date de départ]}].
@@ -61,7 +61,8 @@ export async function searchHalalbooking(input, credentials, fetcher = fetch) {
   const q=validateSearch(input);
   if (!credentials.partner || !credentials.secret) throw new Error('CONFIGURATION_MISSING');
   const url=new URL('https://halalbooking.com/api/v2/fr/places');
-  const params=new URLSearchParams({currency:'EUR',checkin:q.checkin,checkout:q.checkout,holiday_type:'hotel','place_ids[]':String(q.hotelId),customer_country_code:q.country});
+  // holiday_type omis (optionnel depuis 2024) : hôtels, resorts, villas et thermes sont tous recherchés.
+  const params=new URLSearchParams({currency:'EUR',checkin:q.checkin,checkout:q.checkout,'place_ids[]':String(q.hotelId),customer_country_code:q.country});
   for (const room of q.rooms) params.append('groups[]', groupOf(room));
   url.search=params.toString();
   let response;
@@ -78,5 +79,39 @@ export async function searchHalalbooking(input, credentials, fetcher = fetch) {
       commissionPercent:rate.affiliate_commission_percentage??null,...agencyNet(rate),
       meal:plan.meal_plan_name??null,mealCode:mealCodeFromText(plan.meal_plan_name),inclusions:Array.isArray(plan.inclusions)?plan.inclusions.filter(x=>typeof x==='string'):[],cancellation:plan.cancellation_policy??null});
   }});
-  return {provider:'Halalbooking',observedAt:new Date().toISOString(),criteria:q,scope:'one_hotel_rooms_children',offers,notice:'Prix de recherche, à reconfirmer (cache fournisseur jusqu’à 5 min ; commission susceptible d’évoluer à la vérification). Net agence fourni par Halalbooking, hors frais payables sur place. Aucun rapprochement automatique de chambres.'};
+  const p0=data.offers[0]?.place;
+  return {provider:'Halalbooking',observedAt:new Date().toISOString(),criteria:q,place:p0?{id:p0.id,name:p0.name??null,stars:p0.stars??null,city:p0.location?.city??null,country:p0.location?.country??null,photo:safePhotos(p0.photos)[0]??null}:null,rawPlace:p0??null,scope:'one_hotel_rooms_children',offers,notice:'Prix de recherche, à reconfirmer (cache fournisseur jusqu’à 5 min ; commission susceptible d’évoluer à la vérification). Net agence fourni par Halalbooking, hors frais payables sur place. Aucun rapprochement automatique de chambres.'};
+}
+
+/** Recherche par destination (paramètre location, noms anglais) : une offre « à partir de » par établissement, 20 par page. */
+export function validateDestination(input, now = new Date()) {
+  const q = validateSearch({ ...input, hotelId: 1 }, now);
+  const location = typeof input?.location === 'string' ? input.location.trim() : '';
+  if (!/^[\p{L}\p{M} .,'-]{2,80}$/u.test(location)) throw new Error('LOCATION_INVALID');
+  const page = input?.page === undefined ? 1 : input.page;
+  if (!Number.isInteger(page) || page < 1 || page > 100) throw new Error('CRITERIA_INVALID');
+  delete q.hotelId;
+  return { ...q, location, page };
+}
+export async function searchHalalbookingDestination(input, credentials, fetcher = fetch) {
+  const q = validateDestination(input);
+  if (!credentials.partner || !credentials.secret) throw new Error('CONFIGURATION_MISSING');
+  const url = new URL('https://halalbooking.com/api/v2/fr/places');
+  const params = new URLSearchParams({ currency: 'EUR', checkin: q.checkin, checkout: q.checkout, location: q.location, page: String(q.page), customer_country_code: q.country });
+  for (const room of q.rooms) params.append('groups[]', groupOf(room));
+  url.search = params.toString();
+  let response;
+  try { response = await fetcher(url, { headers: { Accept: 'application/json', Authorization: 'Basic ' + btoa(credentials.partner + ':' + credentials.secret) }, redirect: 'manual', signal: AbortSignal.timeout(25000) }); } catch { throw new Error('SUPPLIER_UNREACHABLE'); }
+  if (response.status === 429) throw new Error('QUOTA_EXCEEDED');
+  if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'SUPPLIER_AUTH_FAILED' : 'SUPPLIER_ERROR');
+  let data; try { data = await response.json(); } catch { throw new Error('SUPPLIER_INVALID_RESPONSE'); }
+  if (!Array.isArray(data.offers) || data.currency !== 'EUR') throw new Error('SUPPLIER_INVALID_RESPONSE');
+  const n = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const hotels = data.offers.map(o => ({
+    id: o.place?.id, name: o.place?.name ?? null, stars: o.place?.stars ?? null, city: o.place?.location?.city ?? null, country: o.place?.location?.country ?? null,
+    holidayType: o.place?.holiday_type ?? null, photo: safePhotos(o.place?.photos)[0] ?? (typeof o.place?.photo === 'string' && /^https:\/\//.test(o.place.photo) ? o.place.photo : null),
+    reviewScore: n(o.place?.review_score?.numerical_rating), reviewLabel: o.place?.review_score?.textual_rating ?? null,
+    minPrice: n(o.min_price), net: n(o.affiliate_net_price), commissionPercent: o.affiliate_commission_percentage ?? null, quantity: n(o.quantity),
+  })).filter(h => Number.isSafeInteger(h.id));
+  return { provider: 'Halalbooking', observedAt: new Date().toISOString(), criteria: q, page: n(data.page) ?? q.page, totalPages: n(data.total_pages), total: n(data.total_results), hotels, rawPlaces: data.offers.map(o => o.place).filter(Boolean) };
 }

@@ -1,6 +1,6 @@
 // Administration : connexion Bedsonline (Hotelbeds) et correspondance des hôtels, validée par un humain.
 const $ = id => document.getElementById(id);
-const HOTEL = { id: 4, name: 'Deluxe Golden Horn Sultanahmet' }; // hôtel de référence (même liste que le comparateur)
+const H = () => window.__admHotel ?? { id: 4, name: 'Deluxe Golden Horn Sultanahmet' }; // hôtel choisi dans « Hôtel à associer »
 const say = { CONFIGURATION_MISSING: 'Clés absentes dans Cloudflare (HOTELBEDS_API_KEY, HOTELBEDS_SECRET).', SUPPLIER_AUTH_FAILED: 'Bedsonline refuse la clé : vérifiez clé, secret et environnement.', QUOTA_EXCEEDED: 'Quota d’appels atteint (50 par jour en évaluation).', SUPPLIER_UNREACHABLE: 'Bedsonline injoignable.', INVALID_CRITERIA: 'Code destination invalide (ex. IST).' };
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const msg = (t, k = 'info') => { const m = $('hb-msg'); m.textContent = t; m.className = 'msg ' + k; m.hidden = !t; };
@@ -13,12 +13,12 @@ async function current() {
   const r = await api('/api/admin/mappings');
   if (!r.ok) return;
   $('hb-mapping').hidden = false;
-  const m = r.data.mappings.find(x => x.hbPlaceId === HOTEL.id && x.provider === 'hotelbeds');
+  const m = r.data.mappings.find(x => x.hbPlaceId === H().id && x.provider === 'hotelbeds');
   const box = $('hb-current'); box.replaceChildren();
-  if (!m) { box.textContent = `${HOTEL.name} : aucun code Bedsonline associé, la recherche Bedsonline est désactivée pour cet hôtel.`; return; }
+  if (!m) { box.textContent = `${H().name} : aucun code Bedsonline associé, la recherche Bedsonline est désactivée pour cet hôtel.`; return; }
   const del = el('button', { type: 'button', className: 'text-button', textContent: 'Retirer l’association' });
-  del.onclick = async () => { if (!confirm('Retirer l’association Bedsonline ?')) return; await api('/api/admin/mappings', { action: 'delete', hbPlaceId: HOTEL.id, provider: 'hotelbeds', code: m.code }); current(); };
-  box.append(`${HOTEL.name} ↔ code Bedsonline ${m.code}${m.name ? ' · ' + m.name : ''}${m.address ? ' · ' + m.address : ''} — validé par ${m.validatedBy} le ${new Date(m.validatedAt).toLocaleString('fr-FR')}. `, del);
+  del.onclick = async () => { if (!confirm('Retirer l’association Bedsonline ?')) return; await api('/api/admin/mappings', { action: 'delete', hbPlaceId: H().id, provider: 'hotelbeds', code: m.code }); current(); };
+  box.append(`${H().name} ↔ code Bedsonline ${m.code}${m.name ? ' · ' + m.name : ''}${m.address ? ' · ' + m.address : ''} — validé par ${m.validatedBy} le ${new Date(m.validatedAt).toLocaleString('fr-FR')}. `, del);
 }
 $('hb-status-btn').onclick = async () => {
   const out = $('hb-status-out'); out.hidden = false; out.textContent = 'Test en cours (2 appels)…';
@@ -38,8 +38,8 @@ async function search(start) {
   $('hb-hotels').replaceChildren(...r.data.hotels.map(h => {
     const b = el('button', { type: 'button', className: 'btn', textContent: 'Associer' });
     b.onclick = async () => {
-      if (!confirm(`Associer « ${HOTEL.name} » au code Bedsonline ${h.code} :\n${h.name}\n${h.address || 'adresse non fournie'}\n${h.rating ?? ''}\n\nConfirmez-vous qu’il s’agit du même établissement ?`)) return;
-      const x = await api('/api/admin/mappings', { action: 'set', hbPlaceId: HOTEL.id, provider: 'hotelbeds', code: h.code, name: h.name, address: h.address });
+      if (!confirm(`Associer « ${H().name} » au code Bedsonline ${h.code} :\n${h.name}\n${h.address || 'adresse non fournie'}\n${h.rating ?? ''}\n\nConfirmez-vous qu’il s’agit du même établissement ?`)) return;
+      const x = await api('/api/admin/mappings', { action: 'set', hbPlaceId: H().id, provider: 'hotelbeds', code: h.code, name: h.name, address: h.address });
       msg(x.ok ? 'Association enregistrée : la recherche Bedsonline est active pour cet hôtel.' : 'Échec de l’enregistrement.', x.ok ? 'ok' : 'err'); current();
     };
     return el('div', { className: 'map-item' }, el('span', {}, h.name ?? 'Nom non fourni', el('small', { textContent: [h.rating, h.address, `code ${h.code}`].filter(Boolean).join(' · ') })), b);
@@ -47,4 +47,5 @@ async function search(start) {
 }
 $('hb-search').addEventListener('submit', e => { e.preventDefault(); search(1); });
 $('hb-next').onclick = () => search(from + 1000);
+window.addEventListener('adminhotel', () => { current(); $('hb-hotels').replaceChildren(); msg(''); $('hb-search').q.value = (H().name ?? '').split(' ').slice(0, 3).join(' '); });
 current();

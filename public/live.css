@@ -30,3 +30,18 @@ nav a{align-self:center;padding:12px 16px;border-radius:30px;white-space:nowrap;
 .room-photos{grid-column:1/-1;display:flex;gap:8px;overflow-x:auto;padding:4px 0 2px}.room-photos img{height:96px;width:144px;object-fit:cover;border-radius:12px;display:block;background:#eef2f5}
 .provider .panel-photo{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:14px;margin-bottom:12px;background:#eef2f5;display:block}
 .rate-comments{grid-column:1/-1;background:#fff8e6;border-radius:14px;padding:12px 14px;font-size:13px}.rate-comments p{margin:0 0 6px}.rate-comments ul{margin:6px 0 0;padding-left:18px}
+
+.place-field{position:relative}.place-field label{display:block}
+.place-field input{width:100%;border:0;background:transparent;font:inherit;font-size:15px;padding:6px 0;outline:none}
+.place-suggest{position:absolute;z-index:30;left:0;right:0;top:100%;margin:8px 0 0;padding:6px;list-style:none;background:#fff;border:1px solid #e3e8ee;border-radius:16px;box-shadow:0 18px 40px rgba(15,31,61,.12);max-height:360px;overflow:auto}
+.place-suggest li{padding:9px 12px;border-radius:10px;cursor:pointer;font-size:14px;line-height:1.3}
+.place-suggest li small{display:block;color:#65758a;font-size:12px}.place-suggest li[aria-selected=true],.place-suggest li:hover{background:#eaf6f6}
+.place-suggest .group{font-size:11px;font-weight:700;letter-spacing:.06em;color:#65758a;padding:8px 12px 4px;cursor:default;background:none!important}
+.dest-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:14px}
+.dest-card{border:1px solid #e3e8ee;border-radius:20px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.dest-card img{width:100%;aspect-ratio:16/10;object-fit:cover;background:#eef2f5;display:block}
+.dest-card .body{padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:6px;font-size:13px;color:#3c4b5e}
+.dest-card h3{margin:0;font-size:16px;color:#0f1f3d}.dest-card .net{font-size:22px;font-weight:700;color:#0f1f3d;margin-top:auto}
+.dest-card .btn-compare{margin-top:8px;border:0;border-radius:999px;background:#0f1f3d;color:#fff;font:inherit;font-weight:700;padding:10px 14px;cursor:pointer}
+.dest-pager{display:flex;gap:10px;align-items:center;justify-content:center;margin:18px 0}
+.dest-pager button{border:1px solid #cfd8e3;background:#fff;border-radius:999px;padding:8px 16px;font:inherit;cursor:pointer}.dest-pager button:disabled{opacity:.4}

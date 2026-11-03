@@ -3,7 +3,8 @@
 import { createAuth } from '../server/auth-core.mjs';
 import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
-import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
+import { validateSearch, searchHalalbooking, searchHalalbookingDestination, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
+import { createCatalog, placeRow, syncBatch } from '../server/hb-catalog.mjs';
 import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
 import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
 import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, hotelbedsRateComments, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
@@ -46,7 +47,9 @@ async function halalbookingSearch(request, env, user) {
   try { const raw = await request.text(); if (raw.length > 4096) throw new Error(); criteria = validateSearch(JSON.parse(raw)); }
   catch (e) { const detail = e instanceof Error && CRITERIA_ERRORS.includes(e.message) ? e.message : 'CRITERIA_INVALID'; return json({ error: 'INVALID_CRITERIA', detail }, 400); }
   try {
-    return json(await searchHalalbooking(criteria, { partner: env.HALALBOOKING_PARTNER_CODE, secret: env.HALALBOOKING_SECRET_KEY }));
+    const { rawPlace, ...result } = await searchHalalbooking(criteria, { partner: env.HALALBOOKING_PARTNER_CODE, secret: env.HALALBOOKING_SECRET_KEY });
+    await rememberPlaces(env, [rawPlace]);
+    return json(result);
   } catch (e) {
     const error = e instanceof Error ? e.message : 'SUPPLIER_ERROR';
     const known = ['CONFIGURATION_MISSING', 'SUPPLIER_AUTH_FAILED', 'SUPPLIER_UNREACHABLE', 'SUPPLIER_INVALID_RESPONSE'];
@@ -62,6 +65,61 @@ async function readJson(request) {
 }
 const sameOrigin = request => request.headers.get('origin') === new URL(request.url).origin;
 const supplierError = e => { const m = e instanceof Error ? e.message : ''; return TBO_ERRORS.includes(m) || HOTELBEDS_ERRORS.includes(m) ? m : 'SUPPLIER_ERROR'; };
+
+// Les établissements vus en recherche enrichissent le catalogue (jamais bloquant).
+async function rememberPlaces(env, places) {
+  if (!env.DB) return;
+  try { await createCatalog(env.DB).upsert(places.map(placeRow).filter(Boolean)); } catch { /* catalogue facultatif */ }
+}
+const hbCreds = env => ({ partner: env.HALALBOOKING_PARTNER_CODE, secret: env.HALALBOOKING_SECRET_KEY });
+
+async function destinationSearch(request, env, user) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (request.method !== 'POST') return json({ error: 'NOT_FOUND' }, 404);
+  if (!sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
+  let body;
+  try { body = await readJson(request); } catch { return json({ error: 'INVALID_CRITERIA', detail: 'CRITERIA_INVALID' }, 400); }
+  try {
+    const { rawPlaces, ...result } = await searchHalalbookingDestination(body, hbCreds(env));
+    await rememberPlaces(env, rawPlaces);
+    return json(result);
+  } catch (e) {
+    const m = e instanceof Error ? e.message : '';
+    if (CRITERIA_ERRORS.includes(m)) return json({ error: 'INVALID_CRITERIA', detail: m }, 400);
+    return json({ error: ['CONFIGURATION_MISSING', 'SUPPLIER_AUTH_FAILED', 'SUPPLIER_UNREACHABLE', 'SUPPLIER_INVALID_RESPONSE', 'QUOTA_EXCEEDED'].includes(m) ? m : 'SUPPLIER_ERROR' }, 502);
+  }
+}
+
+async function placesSuggest(env, user, url) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (!env.DB) return json({ hotels: [], cities: [] });
+  const q = (url.searchParams.get('q') ?? '').slice(0, 80);
+  try { return json(await createCatalog(env.DB).suggest(q)); } catch { return json({ hotels: [], cities: [] }); }
+}
+
+async function placeInfo(env, user, url) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  const id = Number(url.searchParams.get('id'));
+  if (!Number.isSafeInteger(id) || id < 1 || !env.DB) return json({ error: 'NOT_FOUND' }, 404);
+  const p = await createCatalog(env.DB).get(id).catch(() => null);
+  return p ? json({ place: p }) : json({ error: 'NOT_FOUND' }, 404);
+}
+
+async function catalogAdmin(request, env, user, path) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);
+  if (!env.DB) return json({ error: 'STORAGE_NOT_CONFIGURED' }, 503);
+  const catalog = createCatalog(env.DB);
+  if (path === '/api/admin/catalog/state' && request.method === 'GET') return json(await catalog.state());
+  if (path === '/api/admin/catalog/sync' && request.method === 'POST') {
+    if (!sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
+    let b; try { b = await readJson(request); } catch { return json({ error: 'INVALID_BODY' }, 400); }
+    const from = Number.isInteger(b.from) && b.from >= 1 ? b.from : 1;
+    try { return json(await syncBatch(catalog, from, hbCreds(env))); }
+    catch (e) { return json({ error: e instanceof Error ? e.message : 'SUPPLIER_ERROR' }, 502); }
+  }
+  return json({ error: 'NOT_FOUND' }, 404);
+}
 
 async function tboSearch(request, env, user) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
@@ -190,6 +248,10 @@ export async function route(request, env) {
   try { user = await currentUser(request, auth); } catch { user = null; }
 
   if (path === '/api/halalbooking/search') return secure(await halalbookingSearch(request, env, user), { noStore: true });
+  if (path === '/api/halalbooking/destination') return secure(await destinationSearch(request, env, user), { noStore: true });
+  if (path === '/api/places/suggest') return secure(await placesSuggest(env, user, url), { noStore: true });
+  if (path === '/api/places/info') return secure(await placeInfo(env, user, url), { noStore: true });
+  if (path.startsWith('/api/admin/catalog/')) return secure(await catalogAdmin(request, env, user, path), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/ratecomments') return secure(await bedsonlineRateComments(request, env, user, url), { noStore: true });

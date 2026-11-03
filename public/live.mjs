@@ -37,7 +37,9 @@ const ERRORS = {
 };
 
 const roomLabel = r => `${r.adults} adulte${r.adults > 1 ? 's' : ''}${r.children.length ? ' + ' + r.children.map(a => a === 0 ? 'bébé (< 1 an)' : `enfant ${a} an${a > 1 ? 's' : ''}`).join(', ') : ''}`;
-const criteria = () => ({ hotelId: Number($('#live-hotel').value), checkin: $('#live-in').value, checkout: $('#live-out').value, rooms: structuredClone(rooms), country: $('#live-country').value });
+// Lieu choisi : un hôtel (id Halalbooking) ou une destination (texte anglais transmis à Halalbooking).
+let place = { type: 'hotel', id: 4, name: 'Deluxe Golden Horn Sultanahmet', city: 'Istanbul', country: 'Turkey' };
+const criteria = () => ({ hotelId: place.type === 'hotel' ? place.id : null, checkin: $('#live-in').value, checkout: $('#live-out').value, rooms: structuredClone(rooms), country: $('#live-country').value });
 const filters = () => ({ meal: $('#live-meal').value, refund: $('#live-refund').value, room: $('#live-room').value, budget: $('#live-budget').value, sort: $('#live-sort').value });
 
 // ---- Voyageurs et chambres ----
@@ -191,7 +193,7 @@ function panelBody(id) {
   if (!tbo) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Prêt à rechercher.</div>' };
   if (tbo.loading) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Recherche en cours…</div>' };
   if (tbo.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
-  if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Hôtel pas encore associé à un code TBO. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>' };
+  if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: `<div class="state">Hôtel pas encore associé à un code TBO. ${mapLink()}</div>` };
   if (tbo.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">TBO renvoie des tarifs en ${esc(tbo.currency)} (devise du compte TBO). L’euro est imposé : ${plural(tbo.hidden ?? 0, 'offre')} masquée(s), sans conversion. Demandez à TBO de configurer votre compte en EUR.</div>` };
   const p = panels.tbo;
   if (!p.received) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">TBO n’a retourné aucune disponibilité pour ces critères.</div>' };
@@ -205,6 +207,7 @@ function panelBody(id) {
 }
 
 
+const mapLink = () => `<a href="/admin.html?hotel=${encodeURIComponent(place.id)}&name=${encodeURIComponent(place.name)}&city=${encodeURIComponent(place.city ?? '')}#place-card">Associer cet hôtel</a> (administrateurs).`;
 // ---- Bedsonline / Hotelbeds ----
 const BEDS_ERRORS = {
   CONFIGURATION_MISSING: 'Les accès Bedsonline (HOTELBEDS_API_KEY, HOTELBEDS_SECRET) ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
@@ -226,7 +229,7 @@ function bedsBody(nRooms) {
   if (!beds) return { top: envTag(), html: '<div class="state">Prêt à rechercher.</div>' };
   if (beds.loading) return { top: envTag(), html: '<div class="state">Recherche en cours…</div>' };
   if (beds.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(BEDS_ERRORS[beds.error] ?? ERRORS[beds.error] ?? 'La recherche Bedsonline n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
-  if (beds.status === 'not_mapped') return { top: envTag(), html: '<div class="state">Hôtel pas encore associé à un code Bedsonline. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>' };
+  if (beds.status === 'not_mapped') return { top: envTag(), html: `<div class="state">Hôtel pas encore associé à un code Bedsonline. ${mapLink()}</div>` };
   if (beds.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">Bedsonline renvoie des tarifs en ${esc(beds.currency)}. L’euro est imposé : offres masquées, sans conversion.</div>` };
   const p = panels.bedsonline;
   if (!p.received) return { top: envTag(), html: '<div class="state">Bedsonline n’a retourné aucune disponibilité pour ces critères.</div>' };
@@ -323,13 +326,22 @@ $('#live-search').onsubmit = async e => {
   if (loading) return;
   const err = roomsProblem(rooms);
   if (err) { $('#live-error').textContent = err; return; }
-  loading = true;
+  hideSuggest();
+  const typed = $('#live-place').value.trim();
+  if (!typed) { $('#live-error').textContent = 'Indiquez une destination ou un hôtel.'; return; }
+  if (place.type === 'hotel' && typed !== place.name) place = { type: 'city', name: typed };
+  if (place.type === 'city') return searchDestination(1);
+  return searchHotel();
+};
+async function searchHotel() {
+  loading = true; showMode('hotel');
   const q = criteria(), nationality = $('#live-nationality').value;
   snapshot = null; hbState = 'loading'; tbo = { loading: true }; beds = { loading: true };
   $('#pending').hidden = true; $('#live-error').textContent = '';
   $('#live-status').textContent = 'Recherche en cours auprès des fournisseurs connectés…'; $('#live-submit').disabled = true;
   const n = nightsBetween(q.checkin, q.checkout);
-  $('#results-title').textContent = $('#live-hotel').selectedOptions[0].textContent.split(' · ')[0];
+  $('#results-title').textContent = place.name;
+  $('#result-location').textContent = `${(place.city ?? '').toUpperCase()}${place.country ? ' · ' + place.country.toUpperCase() : ''} · OFFRES RÉELLES`;
   $('#criteria').textContent = `${q.checkin} → ${q.checkout} · ${n} nuit${n > 1 ? 's' : ''} · ${q.rooms.map((x, i) => `ch. ${i + 1} : ${roomLabel(x)}`).join(' ; ')} · pays ${q.country} · nationalité ${nationality}`;
   render();
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -351,7 +363,91 @@ $('#live-search').onsubmit = async e => {
   $('#live-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix à reconfirmer chez le fournisseur.`;
   clearFilters(); markPending();
   loading = false; $('#live-submit').disabled = false;
-};
-const CRITERIA_CODES = ['CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
+}
+
+// ---- Mode destination : hôtels Halalbooking avec prix « dès » ----
+let dest = null;
+function showMode(mode) { $('#destination-results').hidden = mode !== 'destination'; $('#hotel-results').hidden = mode !== 'hotel'; }
+async function searchDestination(page) {
+  loading = true; showMode('destination'); $('#live-submit').disabled = true; $('#live-error').textContent = ''; $('#pending').hidden = true;
+  const q = { checkin: $('#live-in').value, checkout: $('#live-out').value, rooms: structuredClone(rooms), country: $('#live-country').value, location: place.name, page };
+  $('#results-title').textContent = place.name; $('#result-location').textContent = 'DESTINATION · OFFRES HALALBOOKING';
+  const n = nightsBetween(q.checkin, q.checkout);
+  $('#criteria').textContent = `${q.checkin} → ${q.checkout} · ${n} nuit${n > 1 ? 's' : ''} · ${q.rooms.map((x, i) => `ch. ${i + 1} : ${roomLabel(x)}`).join(' ; ')} · pays ${q.country}`;
+  $('#destination-results').innerHTML = '<div class="empty">Recherche des hôtels disponibles…</div>';
+  $('#live-status').textContent = 'Recherche Halalbooking en cours…';
+  try {
+    const r = await fetch('/api/halalbooking/destination', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || d.error || 'SUPPLIER_ERROR');
+    dest = d; renderDestination();
+    $('#live-status').textContent = `Relevé du ${new Date(d.observedAt).toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix « dès » à reconfirmer.`;
+  } catch (err) {
+    $('#destination-results').innerHTML = `<div class="empty">${esc(err.message === 'LOCATION_INVALID' ? 'Destination invalide : utilisez le nom anglais de la ville, de la région ou du pays (ex. Istanbul, Antalya, Morocco).' : ERRORS[err.message] ?? 'La recherche n’a pas abouti. Aucun tarif fictif ne remplace la réponse.')}</div>`;
+    $('#live-status').textContent = 'Aucun résultat exploitable pour cette recherche.';
+  } finally { loading = false; $('#live-submit').disabled = false; }
+}
+function renderDestination() {
+  const d = dest;
+  if (!d.hotels.length) { $('#destination-results').innerHTML = `<div class="empty">Halalbooking ne propose aucun hôtel disponible pour « ${esc(place.name)} » à ces dates. Essayez le nom anglais de la ville ou du pays (ex. Istanbul, Turkey).</div>`; return; }
+  const stars = n => (n ? '★'.repeat(Math.round(n)) : '');
+  $('#destination-results').innerHTML = `<p class="subtle">${d.total ?? d.hotels.length} établissement(s) disponibles · page ${d.page}${d.totalPages ? ' sur ' + d.totalPages : ''} · tri Halalbooking</p>
+    <div class="dest-grid">${d.hotels.map(h => `<article class="dest-card">${h.photo ? `<img src="${esc(h.photo)}" alt="${esc(h.name)}" loading="lazy" referrerpolicy="no-referrer">` : ''}<div class="body">
+      <h3>${esc(h.name)}</h3><span>${esc(stars(h.stars))} ${esc([h.city, h.country].filter(Boolean).join(', '))}</span>
+      ${h.reviewScore ? `<span>Avis ${esc(String(h.reviewScore).replace('.', ','))}/10${h.reviewLabel ? ' · ' + esc(h.reviewLabel) : ''}</span>` : ''}
+      <span class="net">${typeof h.net === 'number' ? money(h.net) : money(h.minPrice)}</span>
+      <span>${typeof h.net === 'number' ? `Net agence dès · public ${money(h.minPrice)}` : 'Prix public dès'} · ${plural(rooms.length, 'chambre')}${h.quantity > rooms.length ? ` (${h.quantity} logements)` : ''}</span>
+      <button type="button" class="btn-compare" data-hotel="${h.id}">Comparer les fournisseurs →</button></div></article>`).join('')}</div>
+    <div class="dest-pager"><button type="button" data-page="${d.page - 1}" ${d.page > 1 ? '' : 'disabled'}>← Précédent</button><span>Page ${d.page}${d.totalPages ? ' / ' + d.totalPages : ''}</span><button type="button" data-page="${d.page + 1}" ${d.totalPages && d.page < d.totalPages ? '' : 'disabled'}>Suivant →</button></div>`;
+  $$('[data-hotel]').forEach(b => b.onclick = () => {
+    const h = d.hotels.find(x => String(x.id) === b.dataset.hotel);
+    place = { type: 'hotel', id: h.id, name: h.name, city: h.city, country: h.country };
+    $('#live-place').value = h.name; searchHotel(); window.scrollTo({ top: $('#live-search').offsetTop, behavior: 'smooth' });
+  });
+  $$('[data-page]').forEach(b => b.onclick = () => searchDestination(Number(b.dataset.page)));
+}
+
+// ---- Suggestions (catalogue Halalbooking, sans appel fournisseur) ----
+let suggestTimer = null, suggestions = [], active = -1;
+function hideSuggest() { $('#place-suggest').hidden = true; $('#live-place').setAttribute('aria-expanded', 'false'); active = -1; }
+function choose(item) {
+  place = item.type === 'hotel' ? { type: 'hotel', id: item.id, name: item.name, city: item.city, country: item.country } : { type: 'city', name: item.city, country: item.country };
+  $('#live-place').value = place.name; hideSuggest(); markPending();
+}
+function drawSuggest() {
+  const box = $('#place-suggest');
+  if (!suggestions.length) { hideSuggest(); return; }
+  let html = '', k = 0;
+  const cities = suggestions.filter(x => x.type === 'city'), hotels = suggestions.filter(x => x.type === 'hotel');
+  if (cities.length) html += '<li class="group" role="presentation">DESTINATIONS</li>' + cities.map(c => `<li role="option" data-i="${k++}" aria-selected="false">📍 ${esc(c.city)}<small>${esc(c.country ?? '')} · ${c.count} établissement(s)</small></li>`).join('');
+  if (hotels.length) html += '<li class="group" role="presentation">HÔTELS</li>' + hotels.map(h => `<li role="option" data-i="${k++}" aria-selected="false">${esc(h.name)}<small>${esc([h.city, h.country].filter(Boolean).join(', '))}${h.stars ? ' · ' + '★'.repeat(Math.round(h.stars)) : ''}</small></li>`).join('');
+  suggestions = [...cities, ...hotels];
+  box.innerHTML = html; box.hidden = false; $('#live-place').setAttribute('aria-expanded', 'true');
+  box.querySelectorAll('[data-i]').forEach(li => li.onmousedown = ev => { ev.preventDefault(); choose(suggestions[Number(li.dataset.i)]); });
+}
+$('#live-place').addEventListener('input', () => {
+  const v = $('#live-place').value.trim();
+  if (place.type === 'hotel' && v !== place.name) place = { type: 'city', name: v };
+  else if (place.type === 'city') place = { type: 'city', name: v };
+  clearTimeout(suggestTimer);
+  if (v.length < 2) { suggestions = []; hideSuggest(); return; }
+  suggestTimer = setTimeout(async () => {
+    try {
+      const d = await (await fetch('/api/places/suggest?q=' + encodeURIComponent(v))).json();
+      suggestions = [...(d.cities ?? []).map(c => ({ type: 'city', ...c })), ...(d.hotels ?? []).map(h => ({ type: 'hotel', ...h }))];
+      drawSuggest();
+    } catch { hideSuggest(); }
+  }, 180);
+});
+$('#live-place').addEventListener('keydown', e => {
+  const items = [...$('#place-suggest').querySelectorAll('[data-i]')];
+  if ($('#place-suggest').hidden || !items.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; items.forEach((li, i) => li.setAttribute('aria-selected', String(i === active))); }
+  else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); choose(suggestions[active]); }
+  else if (e.key === 'Escape') hideSuggest();
+});
+$('#live-place').addEventListener('blur', () => setTimeout(hideSuggest, 120));
+
+const CRITERIA_CODES = ['LOCATION_INVALID', 'CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
 guestSummary(); markPending(); render();
 setInterval(() => { if (snapshot || tbo?.offers || beds?.offers) render(); }, 60000);

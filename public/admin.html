@@ -8,9 +8,16 @@
 <button class="btn" type="submit">Créer et obtenir le lien</button></form><div id="create-out"></div></section>
 <section class="account-card" aria-labelledby="list"><h2 id="list">Comptes</h2><table class="users"><thead><tr><th>Email</th><th>Rôle</th><th>État</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table>
 <div id="row-out"></div></section></div>
+<section class="account-card mapping-card" id="catalog-card" hidden aria-labelledby="cat-title"><h2 id="cat-title">Catalogue Halalbooking</h2>
+<p class="lead">Le catalogue permet aux agents de chercher un hôtel par son nom. Les hôtels consultés s’y ajoutent automatiquement ; la synchronisation complète importe tout le catalogue (environ 900 pages, quelques minutes).</p>
+<p id="cat-state" class="msg info"></p><div class="map-row"><button class="btn secondary" type="button" id="cat-sync">Synchroniser le catalogue</button><button class="text-button" type="button" id="cat-stop" hidden>Interrompre</button></div></section>
+<section class="account-card mapping-card" id="place-card" hidden aria-labelledby="place-title"><h2 id="place-title">Hôtel à associer</h2>
+<p class="lead">Choisissez l’hôtel Halalbooking de référence, puis associez-le à TBO et à Bedsonline ci-dessous.</p>
+<div class="place-field adm-place"><label for="adm-place">Nom de l’hôtel (catalogue Halalbooking)</label><input id="adm-place" type="text" autocomplete="off" placeholder="ex. Golden Horn"><ul id="adm-suggest" class="place-suggest" hidden></ul></div>
+<p id="adm-current" class="msg ok"></p></section>
 <section class="account-card mapping-card" id="mapping" hidden aria-labelledby="map-title"><h2 id="map-title">Correspondance des hôtels · TBO</h2>
 <p class="lead">TBO utilise ses propres codes d’hôtel. Associez chaque hôtel à son code TBO après avoir vérifié le nom, l’adresse et la catégorie. Aucune association n’est faite automatiquement.</p>
-<label>Hôtel TravelMuz (référence Halalbooking)<select id="map-hotel"><option value="4" data-name="Deluxe Golden Horn Sultanahmet">Deluxe Golden Horn Sultanahmet · Istanbul</option></select></label>
+
 <div id="map-current" class="msg info"></div>
 <form id="map-city-form" class="map-row" novalidate><label>Pays (code ISO)<input name="country" value="TR" maxlength="2" required></label><label>Ville<input name="q" value="Istanbul" required></label><button class="btn secondary" type="submit">Chercher la ville</button></form>
 <div id="map-cities" class="map-list"></div>
@@ -23,4 +30,4 @@
 <div id="hb-current" class="msg info"></div>
 <form id="hb-search" class="map-row" novalidate><label>Code destination Hotelbeds<input name="destination" value="IST" maxlength="6" required></label><label>Nom de l’hôtel contient<input name="q" value="Golden Horn"></label><button class="btn secondary" type="submit">Chercher l’hôtel</button></form>
 <p id="hb-msg" class="msg" role="status" hidden></p><div id="hb-hotels" class="map-list"></div><button class="text-button" type="button" id="hb-next" hidden>Chercher dans les 1 000 hôtels suivants</button></section>
-</main><script type="module" src="/comptes.mjs"></script><script type="module" src="/admin-hotels.mjs"></script><script type="module" src="/admin-bedsonline.mjs"></script></body></html>
+</main><script type="module" src="/comptes.mjs"></script><script type="module" src="/admin-place.mjs"></script><script type="module" src="/admin-hotels.mjs"></script><script type="module" src="/admin-bedsonline.mjs"></script></body></html>

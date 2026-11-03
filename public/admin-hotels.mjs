@@ -10,7 +10,7 @@ async function api(path, body) {
   } catch { return { ok: false, error: 'NETWORK' }; }
 }
 const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
-const hotelId = () => Number($('map-hotel').value);
+const hotelId = () => Number(window.__admHotel?.id);
 let cityCode = null;
 
 async function showCurrent() {
@@ -44,7 +44,7 @@ $('map-hotel-form').addEventListener('submit', async e => {
   const r = await api(`/api/admin/tbo/hotels?city=${encodeURIComponent(cityCode)}&q=${encodeURIComponent(e.currentTarget.q.value.trim())}`);
   if (!r.ok) return msg(say[r.error] ?? 'La recherche n’a pas abouti.', 'err');
   msg(`${r.data.hotels.length} hôtel(s) affiché(s) sur ${r.data.total} dans cette ville. Vérifiez nom, adresse et catégorie avant d’associer.`);
-  const target = $('map-hotel').selectedOptions[0].dataset.name;
+  const target = window.__admHotel?.name ?? 'hôtel';
   $('map-hotels').replaceChildren(...r.data.hotels.map(h => {
     const b = el('button', { type: 'button', className: 'btn', textContent: 'Associer' });
     b.onclick = async () => {
@@ -55,5 +55,4 @@ $('map-hotel-form').addEventListener('submit', async e => {
     return el('div', { className: 'map-item' }, el('span', {}, h.name ?? 'Nom non fourni', el('small', { textContent: [h.rating, h.address, `code ${h.code}`].filter(Boolean).join(' · ') })), b);
   }));
 });
-$('map-hotel').onchange = showCurrent;
-showCurrent();
+window.addEventListener('adminhotel', () => { showCurrent(); $('map-hotels').replaceChildren(); $('map-cities').replaceChildren(); $('map-hotel-form').hidden = true; msg(''); const n = window.__admHotel; if (n?.city) $('map-city-form').q.value = n.city; $('map-hotel-form').q.value = (n?.name ?? '').split(' ').slice(0, 3).join(' '); });
