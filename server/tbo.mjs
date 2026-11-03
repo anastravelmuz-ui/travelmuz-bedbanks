@@ -79,9 +79,9 @@ export function tboSearchBody(q, hotelCode, nationality) {
   };
 }
 
-export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch, { allowNonEur = false } = {}) {
+export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch, { allowNonEur = false, extraFields = null } = {}) {
   if (!cfg) throw new Error('CONFIGURATION_MISSING');
-  const body = tboSearchBody(q, hotelCode, nationality);
+  const body = { ...tboSearchBody(q, hotelCode, nationality), ...(extraFields ?? {}) };
   const data = await post(cfg.search + '/Search', body, cfg, fetcher, 25000);
   const code = data?.Status?.Code;
   const observedAt = new Date().toISOString();
