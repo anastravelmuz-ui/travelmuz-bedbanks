@@ -37,3 +37,11 @@ test('recherche par destination : location, page, prix dès et net fournis', asy
   assert.deepEqual([r.page, r.totalPages, r.total, r.hotels[0].net, r.hotels[0].reviewScore, r.hotels[0].photo], [2, 5, 92, 251.55, 8.3, 'https://cdn.halalstatic.com/x.jpg']);
   assert.equal(r.rawPlaces.length, 1);
 });
+
+test('fin de synchronisation sans total_pages : page incomplète', async () => {
+  const cat = createMemoryCatalog();
+  const full = Array.from({ length: 50 }, (_, i) => place(1000 + i, 'H' + i, 'Antalya'));
+  const fetcher = async url => { const p = Number(new URL(url).searchParams.get('page')); return Response.json({ data: p === 1 ? full : [place(2000, 'Last', 'Antalya')] }); };
+  const b = await syncBatch(cat, 1, creds, fetcher, 4);
+  assert.deepEqual([b.imported, b.done, b.nextPage], [51, true, 3]);
+});

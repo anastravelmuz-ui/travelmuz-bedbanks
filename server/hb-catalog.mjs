@@ -1,7 +1,7 @@
 // Catalogue Halalbooking (GET /api/v2/content, 50 établissements par page) stocké dans D1,
 // pour chercher par nom d'hôtel ou par ville sans appel fournisseur. Synchronisé par lots depuis l'administration.
 const API = 'https://halalbooking.com/api/v2/content';
-export const PAGES_PER_BATCH = 4; // limite de temps CPU / sous-requêtes par invocation du Worker
+export const PAGES_PER_BATCH = 6; // limite de temps CPU / sous-requêtes par invocation du Worker
 
 export const normalize = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const num = v => { const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN; return Number.isFinite(n) ? n : null; };
@@ -29,7 +29,7 @@ export async function fetchContentPage(page, credentials, fetcher = fetch) {
   if (!r.ok) throw new Error('SUPPLIER_ERROR');
   let d; try { d = await r.json(); } catch { throw new Error('SUPPLIER_INVALID_RESPONSE'); }
   if (!Array.isArray(d?.data)) throw new Error('SUPPLIER_INVALID_RESPONSE');
-  return { rows: d.data.map(placeRow).filter(Boolean), totalPages: num(d.total_pages), total: num(d.total_results) };
+  return { rows: d.data.map(placeRow).filter(Boolean), received: d.data.length, perPage: num(d.results_per_page) ?? 50, totalPages: num(d.total_pages ?? d.meta?.total_pages), total: num(d.total_results ?? d.meta?.total_results), hasNext: typeof d.links?.next === 'string' ? true : d.links ? false : null };
 }
 
 const SCHEMA = [
@@ -86,15 +86,16 @@ export function createMemoryCatalog() {
 
 /** Un lot de synchronisation : pages [from, from + n). */
 export async function syncBatch(catalog, from, credentials, fetcher = fetch, n = PAGES_PER_BATCH) {
-  let totalPages = null, imported = 0, page = from;
+  let totalPages = null, imported = 0, page = from, ended = false;
   for (; page < from + n; page++) {
     const r = await fetchContentPage(page, credentials, fetcher);
     totalPages = r.totalPages ?? totalPages;
     await catalog.upsert(r.rows);
     imported += r.rows.length;
-    if (totalPages != null && page >= totalPages) { page++; break; }
+    // Fin : dernière page annoncée, absence de lien « next », ou page incomplète.
+    if ((totalPages != null && page >= totalPages) || r.hasNext === false || r.received < r.perPage) { page++; ended = true; break; }
   }
-  const done = totalPages != null && page > totalPages;
+  const done = ended;
   await catalog.setState('sync', { nextPage: done ? 1 : page, totalPages, lastBatchAt: Date.now(), ...(done ? { completedAt: Date.now() } : {}) });
   return { imported, nextPage: page, totalPages, done };
 }
