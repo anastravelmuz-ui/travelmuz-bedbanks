@@ -127,7 +127,8 @@ function tboRules(o) {
 function tboPhotos(o) {
   const imgs = (o.roomDetails ?? []).flatMap((d, i) => (d?.images ?? []).map(u => ({ u, label: `${o.roomNames[i] ?? d.name ?? 'Chambre'}` })));
   const unique = [...new Map(imgs.map(x => [x.u, x])).values()].slice(0, 8);
-  return unique.length ? `<div class="room-photos">${unique.map((x, k) => `<a href="${esc(x.u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(x.u)}" alt="${esc(x.label)} · photo ${k + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : '';
+  const byName = (o.roomDetails ?? []).some(d => d?.matchedBy === 'name');
+  return unique.length ? `${byName ? '<p class="subtle">Photos de la fiche TBO portant le même intitulé de chambre.</p>' : ''}<div class="room-photos">${unique.map((x, k) => `<a href="${esc(x.u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(x.u)}" alt="${esc(x.label)} · photo ${k + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : '';
 }
 function tboRoomFacts(o) {
   const facts = (o.roomDetails ?? []).map((d, i) => d && (d.size || d.description) ? `<p>${o.roomNames.length > 1 ? `Ch. ${i + 1} · ` : ''}${d.size ? `Superficie TBO : ${esc(d.size)}` : ''}${d.size && d.description ? ' · ' : ''}${d.description ? esc(d.description) : ''}</p>` : '').join('');

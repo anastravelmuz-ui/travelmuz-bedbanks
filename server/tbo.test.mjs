@@ -101,7 +101,11 @@ import { attachRoomDetails } from './tbo.mjs';
 import { cachedDetails, createMemoryDetailsCache, DETAILS_TTL_MS } from './tbo-cache.mjs';
 test('fiches chambres rattachées par RoomID ; cache 15 jours ; panne de fiche sans effet', async () => {
   const offers = attachRoomDetails([{ roomIds: ['9', '404'], roomNames: ['A', 'B'] }], { rooms: [{ id: '9', name: 'Standard', size: '22 m²', description: 'Lit double', images: ['https://i.test/1.jpg'] }] });
-  assert.deepEqual(offers[0].roomDetails, [{ name: 'Standard', size: '22 m²', description: 'Lit double', images: ['https://i.test/1.jpg'] }, null]);
+  assert.deepEqual(offers[0].roomDetails, [{ name: 'Standard', size: '22 m²', description: 'Lit double', images: ['https://i.test/1.jpg'], matchedBy: 'id' }, null]);
+  const det = { rooms: [{ id: '1', name: 'Standard Room, 1 Double Bed', images: ['https://i.test/s.jpg'] }, { id: '2', name: 'Twin', images: [] }, { id: '3', name: 'twin ', images: [] }] };
+  const byName = attachRoomDetails([{ roomIds: [], roomNames: ['standard room,  1 double bed'] }, { roomIds: [], roomNames: ['Twin'] }], det);
+  assert.equal(byName[0].roomDetails[0].matchedBy, 'name');
+  assert.equal(byName[1].roomDetails[0], null); // intitulé ambigu : aucune fiche attribuée
   const cache = createMemoryDetailsCache(); let loads = 0;
   const load = async () => { loads++; return { rooms: [] }; };
   await cachedDetails(cache, '1', load); await cachedDetails(cache, '1', load);

@@ -146,10 +146,23 @@ export async function tboHotelDetails(hotelCode, cfg, fetcher = fetch) {
 }
 
 /** Enrichit les offres de recherche avec les fiches chambres (photos, superficie) par identifiant RoomID. */
+// Repli : si TBO ne renvoie pas de RoomID, intitulé identique (normalisé) à UNE seule fiche TBO du même hôtel.
+// Jamais utilisé pour rapprocher des chambres entre fournisseurs.
+const normName = v => String(v ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 export function attachRoomDetails(offers, details) {
-  const byId = new Map((details?.rooms ?? []).map(r => [r.id, r]));
+  const rooms = details?.rooms ?? [];
+  const byId = new Map(rooms.map(r => [r.id, r]));
+  const byName = new Map();
+  for (const r of rooms) { const k = normName(r.name); if (k) byName.set(k, byName.has(k) ? null : r); }
+  const view = (r, by) => (r ? { name: r.name, size: r.size, description: r.description, images: r.images, matchedBy: by } : null);
   return offers.map(o => {
-    const found = (o.roomIds ?? []).map(id => byId.get(String(id)) ?? null);
-    return { ...o, roomDetails: found.map(r => (r ? { name: r.name, size: r.size, description: r.description, images: r.images } : null)) };
+    const n = Math.max(o.roomIds?.length ?? 0, o.roomNames?.length ?? 0);
+    const roomDetails = Array.from({ length: n }, (_, i) => {
+      const id = o.roomIds?.[i];
+      if (id != null && byId.has(String(id))) return view(byId.get(String(id)), 'id');
+      const named = byName.get(normName(o.roomNames?.[i]));
+      return named ? view(named, 'name') : null;
+    });
+    return { ...o, roomDetails };
   });
 }
