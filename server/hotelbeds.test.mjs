@@ -6,7 +6,7 @@ import { hbedsCancellationState, hbedsFreeUntil } from '../public/hotelbeds-core
 
 const cfg = { base: HOTELBEDS_TEST_URL, apiKey: 'cle', secret: 'secret' };
 const q = { hotelId: 4, checkin: '2027-03-04', checkout: '2027-03-07', country: 'FR', rooms: [{ adults: 2, children: [9, 5] }, { adults: 2, children: [] }, { adults: 2, children: [] }] };
-const rate = (o = {}) => ({ rateKey: 'K', rateClass: 'NOR', rateType: 'BOOKABLE', net: '512.40', sellingRate: '620.00', hotelMandatory: false, rooms: 1, adults: 2, children: 2, childrenAges: '5,9', boardCode: 'BB', boardName: 'BED AND BREAKFAST',
+const rate = (o = {}) => ({ rateKey: 'K', rateCommentsId: '102|166598|0', rateClass: 'NOR', rateType: 'BOOKABLE', net: '512.40', sellingRate: '620.00', hotelMandatory: false, rooms: 1, adults: 2, children: 2, childrenAges: '5,9', boardCode: 'BB', boardName: 'BED AND BREAKFAST',
   cancellationPolicies: [{ amount: '170.80', from: '2027-03-01T23:59:00+03:00' }], taxes: { allIncluded: false, taxes: [{ included: false, amount: '9.00', currency: 'EUR', subType: 'City tax' }] }, ...o });
 
 test('signature X-Signature = SHA-256 hex(clé + secret + horodatage)', async () => {
@@ -31,10 +31,11 @@ test('recherche : requête, en-têtes, net fourni, taxes sur place, rattachement
   assert.equal(seen.init.headers['Api-key'], 'cle'); assert.match(seen.init.headers['X-Signature'], /^[0-9a-f]{64}$/); assert.equal(seen.init.redirect, 'manual');
   assert.deepEqual(seen.body.occupancies, [{ rooms: 1, adults: 2, children: 2, paxes: [{ type: 'CH', age: 9 }, { type: 'CH', age: 5 }] }, { rooms: 2, adults: 2, children: 0 }]);
   assert.deepEqual(seen.body.hotels, { hotel: [123456] });
+  assert.equal(seen.body.sourceMarket, 'FR'); assert.equal(seen.init.headers['Accept-Encoding'], 'gzip');
   const [a, b] = r.offers;
   assert.deepEqual([a.net, a.sellingRate, a.mealCode, a.roomIndexes, a.taxesAtHotel[0].amount, a.environment], [512.4, 620, 'BB', [0], 9, undefined]);
   assert.deepEqual([b.net, b.units, b.roomIndexes, b.rateClass], [700, 2, [1, 2], 'NRF']);
-  assert.equal(r.environment, 'test');
+  assert.equal(r.environment, 'test'); assert.equal(a.rateCommentsId, '102|166598|0');
   assert.equal(JSON.stringify(r).includes('"K"'), false); // rateKey non exposé
 });
 
@@ -70,4 +71,14 @@ test('Content API : hôtels de la destination et photos par code chambre', async
   const [o] = attachHotelbedsDetails([{ roomCode: 'DBL.ST' }], d);
   assert.equal(o.photos.length, 1); assert.equal(o.roomInfo.maxPax, 3);
   await assert.rejects(hotelbedsHotels('ist; drop', 1, cfg, async () => null), /CRITERIA_INVALID/);
+});
+
+import { hotelbedsRateComments } from './hotelbeds.mjs';
+test('commentaires de tarif : code échappé, date, validation', async () => {
+  const c = await hotelbedsRateComments('102|166598|0', '2027-03-04', cfg, async url => {
+    assert.match(String(url), /types\/ratecommentdetails\?date=2027-03-04&code=102%7C166598%7C0/);
+    return Response.json({ rateComments: [{ dateStart: '2017-08-10', dateEnd: '2030-12-31', description: 'no refundable rate.' }] });
+  });
+  assert.equal(c[0].description, 'no refundable rate.');
+  await assert.rejects(hotelbedsRateComments('1;drop', '2027-03-04', cfg, async () => null), /CRITERIA_INVALID/);
 });

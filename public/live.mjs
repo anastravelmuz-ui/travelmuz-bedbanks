@@ -236,7 +236,7 @@ function bedsBody(nRooms) {
   return { top: envTag(), count: p.offers.length, html: `<div class="price">${amount}</div>
     <div class="price-label">Net agence · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Net fourni par Bedsonline${p.pick.some(o => o.recheck) ? ' · prix à revérifier (RECHECK)' : ''}</div>${p.currency !== 'EUR' ? `<div class="secondary-amount tbo-warn">Devise ${esc(p.currency ?? 'inconnue')} : affichée pour les tests, non comparée.</div>` : ''}
     <div class="room-info">${photo ? `<img class="panel-photo" src="${esc(photo)}" alt="${esc(p.pick[0].room ?? 'Chambre')}" loading="lazy" referrerpolicy="no-referrer">` : ''}<strong>${p.pick.map(o => `${o.units > 1 ? `${o.units} × ` : ''}${esc(o.room ?? 'Chambre non renseignée')}`).join('<br>')}</strong>
-    ${mealLine(new Set(p.pick.map(o => o.meal)).size === 1 ? p.pick[0].meal : 'Pensions différentes selon la chambre', p.mealCode)}${new Set(p.pick.map(o => o.state)).size === 1 ? bedsCondition(p.pick[0]) : '<p class="condition warn">Conditions différentes selon la chambre</p>'}<p>${bedsTaxes(p.pick[0])}</p></div>` };
+    ${p.pick[0].category ? `<p>${esc(p.pick[0].category)}</p>` : ''}${mealLine(new Set(p.pick.map(o => o.meal)).size === 1 ? p.pick[0].meal : 'Pensions différentes selon la chambre', p.mealCode)}${new Set(p.pick.map(o => o.state)).size === 1 ? bedsCondition(p.pick[0]) : '<p class="condition warn">Conditions différentes selon la chambre</p>'}<p>${bedsTaxes(p.pick[0])}</p>${p.pick.some(o => o.rateCommentsId) ? '<p class="tbo-warn">Commentaires du tarif à lire (voir le détail)</p>' : ''}</div>` };
 }
 function bedsCard(o) {
   const photos = (o.photos ?? []).slice(0, 8);
@@ -245,7 +245,8 @@ function bedsCard(o) {
     ${bedsCondition(o)}${o.occupancyMatched ? '' : '<p class="error">Occupation renvoyée différente de la demande : à vérifier.</p>'}<p>${bedsTaxes(o)}</p></div>
     <div class="live-price">${moneyIn(o.net, o.currency)}<small>Net agence fourni par Bedsonline</small>${o.sellingRate ? `<small>Prix de vente ${o.hotelMandatory ? 'imposé' : 'conseillé'} : ${moneyIn(o.sellingRate, o.currency)}</small>` : ''}</div>
     ${photos.length ? `<div class="room-photos">${photos.map((u, k) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(u)}" alt="${esc(o.room ?? 'Chambre')} · photo ${k + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : ''}
-    <details><summary>Chambre, annulation et détails</summary>${o.roomInfo?.maxPax ? `<p>Capacité maximale : ${esc(o.roomInfo.maxPax)} personne(s)${o.roomInfo.maxAdults ? `, dont ${esc(o.roomInfo.maxAdults)} adulte(s)` : ''}.</p>` : ''}
+    ${o.rateCommentsId ? `<div class="rate-comments" data-rc="${esc(o.rateCommentsId)}"><p class="tbo-warn">Ce tarif comporte des commentaires de l’hôtel à lire avant toute réservation.</p><button type="button" class="text-button">Afficher les commentaires du tarif</button><div class="rc-body"></div></div>` : ''}
+    <details><summary>Chambre, annulation et détails</summary>${o.category ? `<p>Catégorie Hotelbeds : ${esc(o.category)}</p>` : ''}${o.sourceMarket ? `<p>Prix obtenus pour le marché ${esc(o.sourceMarket)} : à utiliser uniquement pour ce marché.</p>` : ''}${o.roomInfo?.maxPax ? `<p>Capacité maximale : ${esc(o.roomInfo.maxPax)} personne(s)${o.roomInfo.maxAdults ? `, dont ${esc(o.roomInfo.maxAdults)} adulte(s)` : ''}.</p>` : ''}
     ${o.cancellation?.length ? '<ul>' + o.cancellation.map(c => `<li>À partir du ${esc(cutoffLabel(c.from))} : ${moneyIn(c.amount, o.currency)} de frais.</li>`).join('') + '</ul>' : '<p>Conditions d’annulation non renseignées : à vérifier.</p>'}
     ${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.recheck ? '<p class="tbo-warn">Tarif à revérifier avant réservation (RECHECK).</p>' : ''}<p>Aucune équivalence de chambre avec les autres fournisseurs n’est présumée.</p></details></article>`;
 }
@@ -274,13 +275,27 @@ function render() {
   $$('[data-offers]').forEach(btn => btn.onclick = () => openOffers(btn.dataset.offers));
 }
 
+const snapshotCheckin = () => beds?.criteria?.checkin ?? $('#live-in').value;
 function openOffers(id) {
   const p = panels[id];
   if (!p?.offers?.length) return;
   const hotel = $('#results-title').textContent;
   $('#offers-title').innerHTML = `<h2>${{ tbo: 'TBO', bedsonline: 'Bedsonline' }[id] ?? 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : id === 'bedsonline' ? (beds?.environment === 'production' ? 'Offres réelles' : 'Données d’évaluation (test)') : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
   if (id === 'tbo') $('#offers-body').innerHTML = p.offers.map(tboCard).join('');
-  else if (id === 'bedsonline') $('#offers-body').innerHTML = p.offers.map(bedsCard).join('');
+  else if (id === 'bedsonline') {
+    $('#offers-body').innerHTML = p.offers.map(bedsCard).join('');
+    $$('#offers-body .rate-comments button').forEach(btn => btn.onclick = async () => {
+      const box = btn.closest('.rate-comments'), out = box.querySelector('.rc-body');
+      btn.disabled = true; out.textContent = 'Chargement…';
+      try {
+        const r = await fetch(`/api/bedsonline/ratecomments?code=${encodeURIComponent(box.dataset.rc)}&date=${encodeURIComponent(snapshotCheckin())}`);
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error);
+        out.innerHTML = d.comments.length ? '<ul>' + d.comments.map(c => `<li>${esc(c.description)}</li>`).join('') + '</ul>' : '<p>Aucun commentaire renvoyé pour cette date.</p>';
+        btn.hidden = true;
+      } catch (e) { out.textContent = BEDS_ERRORS[e.message] ?? 'Commentaires indisponibles : vérifiez-les sur Bedsonline avant de réserver.'; btn.disabled = false; }
+    });
+  }
   else {
     const many = rooms.length > 1 || (snapshot?.criteria?.rooms?.length ?? 1) > 1;
     $('#offers-body').innerHTML = snapshot.criteria.rooms.map((r, i) => {

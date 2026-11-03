@@ -6,7 +6,7 @@ import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
 import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
 import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
-import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
+import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, hotelbedsRateComments, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
 
 // Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
 const ALLOW_NON_EUR = true;
@@ -107,6 +107,19 @@ async function bedsonlineSearch(request, env, user) {
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 
+async function bedsonlineRateComments(request, env, user, url) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (request.method !== 'GET') return json({ error: 'NOT_FOUND' }, 404);
+  const cfg = hotelbedsConfig(env);
+  if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+  const code = url.searchParams.get('code') ?? '', date = url.searchParams.get('date') ?? '';
+  if (!/^[\d|]{1,60}$/.test(code) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'INVALID_CRITERIA' }, 400);
+  let failure = null;
+  const comments = await cachedDetails(env.DB ? createDetailsCache(env.DB) : null, `hotelbeds-rc:${code}:${date}`, () => hotelbedsRateComments(code, date, cfg).catch(e => { failure = e; throw e; }));
+  if (!comments) return json({ error: supplierError(failure) }, 502);
+  return json({ comments });
+}
+
 async function adminTbo(request, env, user, path, url) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
   if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);
@@ -179,6 +192,7 @@ export async function route(request, env) {
   if (path === '/api/halalbooking/search') return secure(await halalbookingSearch(request, env, user), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
+  if (path === '/api/bedsonline/ratecomments') return secure(await bedsonlineRateComments(request, env, user, url), { noStore: true });
   if (path === '/api/admin/mappings' || path.startsWith('/api/admin/tbo/') || path.startsWith('/api/admin/hotelbeds/')) return secure(await adminTbo(request, env, user, path, url), { noStore: true });
   if (path.startsWith('/api/')) return secure(json({ error: 'NOT_FOUND' }, 404));
 

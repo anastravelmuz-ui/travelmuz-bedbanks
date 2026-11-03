@@ -26,7 +26,7 @@ async function call(cfg, path, { method = 'GET', body, base = cfg.base, timeoutM
   try {
     response = await fetcher(target, {
       method, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs),
-      headers: { Accept: 'application/json', 'Api-key': cfg.apiKey, 'X-Signature': await signature(cfg.apiKey, cfg.secret), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Accept: 'application/json', 'Accept-Encoding': 'gzip', 'Api-key': cfg.apiKey, 'X-Signature': await signature(cfg.apiKey, cfg.secret), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
   } catch { throw new Error('SUPPLIER_UNREACHABLE'); }
@@ -69,6 +69,7 @@ export async function searchHotelbeds(q, hotelCode, cfg, fetcher = fetch, { allo
   if (!/^\d{1,10}$/.test(String(hotelCode))) throw new Error('CRITERIA_INVALID');
   const groups = hotelbedsOccupancies(q.rooms);
   const body = {
+    sourceMarket: q.country, // marché du client : prix utilisés uniquement pour ce marché (règle Hotelbeds)
     stay: { checkIn: q.checkin, checkOut: q.checkout },
     occupancies: groups.map(g => ({ rooms: g.roomIndexes.length, adults: g.adults, children: g.ages.length, ...(g.ages.length ? { paxes: g.ages.map(age => ({ type: 'CH', age })) } : {}) })),
     hotels: { hotel: [Number(hotelCode)] },
@@ -83,7 +84,8 @@ export async function searchHotelbeds(q, hotelCode, cfg, fetcher = fetch, { allo
     const group = groups.find(g => g.key === occKey(rate.adults, ages)) ?? null;
     const taxes = Array.isArray(rate.taxes?.taxes) ? rate.taxes.taxes : [];
     offers.push({
-      provider: 'Bedsonline', hotelCode: String(h.code ?? hotelCode), hotel: h.name ?? null, category: h.categoryName ?? null, currency: h.currency ?? null,
+      provider: 'Bedsonline', hotelCode: String(h.code ?? hotelCode), hotel: h.name ?? null, category: h.categoryName ?? null, categoryCode: h.categoryCode ?? null, currency: h.currency ?? null,
+      rateCommentsId: typeof rate.rateCommentsId === 'string' && /^[\d|]{1,60}$/.test(rate.rateCommentsId) ? rate.rateCommentsId : null, sourceMarket: q.country,
       roomCode: room.code ?? null, room: room.name ?? null,
       roomIndexes: group?.roomIndexes ?? [], units: num(rate.rooms), adults: num(rate.adults), childrenAges: ages, occupancyMatched: !!group,
       net: num(rate.net), sellingRate: num(rate.sellingRate), hotelMandatory: rate.hotelMandatory === true,
@@ -132,4 +134,13 @@ export async function hotelbedsDetails(hotelCode, cfg, fetcher = fetch) {
 export function attachHotelbedsDetails(offers, details) {
   const roomsByCode = new Map((details?.rooms ?? []).map(r => [r.code, r]));
   return offers.map(o => ({ ...o, photos: details?.roomImages?.[o.roomCode] ?? [], roomInfo: roomsByCode.get(o.roomCode) ?? null }));
+}
+
+/** Commentaires de tarif (Content API) : à lire avant toute réservation ; chargés à la demande. */
+export async function hotelbedsRateComments(code, date, cfg, fetcher = fetch) {
+  if (!/^[\d|]{1,60}$/.test(String(code)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw new Error('CRITERIA_INVALID');
+  const qs = new URLSearchParams({ date, code, language: 'ENG', useSecondaryLanguage: 'true' });
+  const data = await call(cfg, `/hotel-content-api/1.0/types/ratecommentdetails?${qs}`, {}, fetcher);
+  if (!Array.isArray(data?.rateComments)) throw new Error('SUPPLIER_INVALID_RESPONSE');
+  return data.rateComments.map(c => ({ dateStart: c.dateStart ?? null, dateEnd: c.dateEnd ?? null, description: typeof c.description === 'string' ? c.description.slice(0, 2000) : null })).filter(c => c.description);
 }

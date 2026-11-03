@@ -29,3 +29,4 @@ nav a{align-self:center;padding:12px 16px;border-radius:30px;white-space:nowrap;
 @media (max-width:640px){.provider-grid{grid-template-columns:1fr!important}}
 .room-photos{grid-column:1/-1;display:flex;gap:8px;overflow-x:auto;padding:4px 0 2px}.room-photos img{height:96px;width:144px;object-fit:cover;border-radius:12px;display:block;background:#eef2f5}
 .provider .panel-photo{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:14px;margin-bottom:12px;background:#eef2f5;display:block}
+.rate-comments{grid-column:1/-1;background:#fff8e6;border-radius:14px;padding:12px 14px;font-size:13px}.rate-comments p{margin:0 0 6px}.rate-comments ul{margin:6px 0 0;padding-left:18px}
