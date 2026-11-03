@@ -52,3 +52,10 @@ test('net : jamais calculé sans donnée exploitable', () => {
   assert.equal(agencyNet({price:300,affiliate_net_price:-1}).netSource,null);
   assert.equal(agencyNet({price:300,affiliate_net_price:250}).netSource,'supplier');
 });
+
+import { safePhotos } from './halalbooking.mjs';
+test('photos de chambre : HTTPS seulement, 8 maximum', () => {
+  assert.deepEqual(safePhotos(['https://cdn.halalstatic.com/a.jpg','http://x.test/b.jpg','javascript:alert(1)','https://x.test/"onerror=1',42]), ['https://cdn.halalstatic.com/a.jpg']);
+  assert.equal(safePhotos(Array(12).fill('https://cdn.halalstatic.com/a.jpg')).length, 8);
+  assert.deepEqual(safePhotos(undefined), []);
+});

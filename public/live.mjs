@@ -101,6 +101,7 @@ function card(o) {
     <p>${esc(o.meal ?? 'Pension non renseignée')} · ${esc(o.quantity ?? '?')} logement(s)${o.confirmation === 'delayed' ? ' · confirmation sous 24 h' : ''}</p>
     <p>${labels[cancellationState(o.cancellation)]}</p>${mismatch ? `<p class="error">Occupation renvoyée (${esc(o.group)}) différente de la demande (${esc(o.requestedGroup)}) : à vérifier.</p>` : ''}</div>
     <div class="live-price">${money(o.price)}<small>Prix public · total du séjour pour cette chambre</small>${netBlock(o)}</div>
+    ${o.photos?.length ? `<div class="room-photos">${o.photos.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(u)}" alt="${esc(o.room ?? 'Chambre')} · photo ${i + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : ''}
     <details><summary>Chambre, commission et conditions</summary>
     <p>${esc(o.description ?? 'Description physique non fournie. Aucune équivalence avec une autre chambre n’est présumée.')}</p>
     ${o.inclusions?.length ? `<p>Inclus : ${o.inclusions.map(esc).join(' · ')}</p>` : ''}
@@ -170,7 +171,7 @@ function panelBody(id) {
     if (!p.total) return { top: 'OFFRES RÉELLES', count: p.offers.length, html: `<div class="state">${p.missingRoom != null && p.offers.length ? `Aucune offre avec net agence pour la chambre ${p.missingRoom + 1} avec ces filtres : pas de total partiel.` : 'Aucune offre ne correspond à ces filtres.'}</div>` };
     return { top: 'OFFRES RÉELLES', count: p.offers.length, html: `<div class="price">${money(p.total).replace('€', '<small>€</small>')}</div>
       <div class="price-label">Net agence · total séjour · ${plural(nRooms, 'chambre')}</div>${p.publicTotal ? `<div class="secondary-amount">Prix public ${money(p.publicTotal)}${p.netConfirmed ? '' : ' · net estimé'}</div>` : ''}
-      <div class="room-info"><strong>${p.pick.map((o, i) => (nRooms > 1 ? `Ch. ${i + 1} : ` : '') + esc(o.room ?? 'Chambre non renseignée')).join('<br>')}</strong>
+      <div class="room-info">${p.pick[0].photos?.[0] ? `<img class="panel-photo" src="${esc(p.pick[0].photos[0])}" alt="${esc(p.pick[0].room ?? 'Chambre')}" loading="lazy" referrerpolicy="no-referrer">` : ''}<strong>${p.pick.map((o, i) => (nRooms > 1 ? `Ch. ${i + 1} : ` : '') + esc(o.room ?? 'Chambre non renseignée')).join('<br>')}</strong>
       ${mealLine(new Set(p.pick.map(o => o.meal)).size === 1 ? p.pick[0].meal : 'Pensions différentes selon la chambre', p.mealCode)}${hbCondition(p)}<p>Net fourni par Halalbooking · hors frais payables sur place</p></div>` };
   }
   // TBO

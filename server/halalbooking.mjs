@@ -26,6 +26,10 @@ export function validateSearch(input, now = new Date()) {
   });
   return { hotelId, checkin, checkout, rooms, country };
 }
+/** Photos de chambre : URL HTTPS uniquement, 8 au maximum (documentation : utilisation autorisée). */
+export function safePhotos(list) {
+  return (Array.isArray(list) ? list : []).filter(u => typeof u === 'string' && u.length < 2048 && /^https:\/\/[^\s"'<>]+$/.test(u)).slice(0, 8);
+}
 export const groupOf = room => [room.adults, ...room.children].join(',');
 
 /** Commission Halalbooking : nombre ou texte à virgule décimale (« 20,720 »). Retourne un pourcentage ou null. */
@@ -69,7 +73,7 @@ export async function searchHalalbooking(input, credentials, fetcher = fetch) {
   for(const hotel of data.offers) (hotel.groups??[]).forEach((group,roomIndex)=>{ for(const room of group.offers??[]) for(const rate of room.rate_plans??[]) {
     const plan=rate.rate_plan??{};
     offers.push({hotelId:hotel.place?.id,hotel:hotel.place?.name,roomIndex,group:group.group??null,requestedGroup:q.rooms[roomIndex]?groupOf(q.rooms[roomIndex]):null,
-      roomId:room.room?.id,room:room.room?.name,description:room.room?.long_description??null,confirmation:room.confirmation??null,
+      roomId:room.room?.id,room:room.room?.name,description:room.room?.long_description??null,photos:safePhotos(room.room?.photos),confirmation:room.confirmation??null,
       quantity:rate.quantity??null,price:rate.price??null,currency:data.currency,priceBasis:'public_price_total_group',
       commissionPercent:rate.affiliate_commission_percentage??null,...agencyNet(rate),
       meal:plan.meal_plan_name??null,mealCode:mealCodeFromText(plan.meal_plan_name),inclusions:Array.isArray(plan.inclusions)?plan.inclusions.filter(x=>typeof x==='string'):[],cancellation:plan.cancellation_policy??null});
