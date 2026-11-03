@@ -105,6 +105,8 @@ export async function syncBatch(catalog, from, credentials, fetcher = fetch, n =
     if ((totalPages != null && page >= totalPages) || r.hasNext === false || r.received < r.perPage) { page++; ended = true; break; }
   }
   const done = ended;
-  await catalog.setState('sync', { nextPage: done ? 1 : page, totalPages, lastBatchAt: Date.now(), ...(done ? { completedAt: Date.now() } : {}) });
+  const prev = (await catalog.state()).sync ?? {};
+  // completedAt conservé tant qu'une nouvelle synchronisation complète n'est pas terminée
+  await catalog.setState('sync', { nextPage: done ? 1 : page, totalPages, lastBatchAt: Date.now(), startedAt: from === 1 ? Date.now() : prev.startedAt ?? null, completedAt: done ? Date.now() : (from === 1 ? null : prev.completedAt ?? null) });
   return { imported, nextPage: page, totalPages, done };
 }

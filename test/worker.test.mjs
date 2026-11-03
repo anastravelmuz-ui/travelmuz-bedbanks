@@ -147,3 +147,20 @@ test('Worker : suggestions de correspondance (admin), sans association automatiq
   await route(call('/api/admin/match?hotel=4&provider=tbo', { cookie, accept: 'application/json' }), e);
   assert.equal(calls, before); // listes en cache
 });
+
+test('Synchronisation automatique du catalogue : reprise, arrêt une fois à jour', async t => {
+  const { runCatalogCron } = await import('../src/router.mjs');
+  const { createMemoryCatalog } = await import('../server/hb-catalog.mjs');
+  const cat = createMemoryCatalog(); const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; });
+  const page = n => Array.from({ length: 50 }, (_, i) => ({ id: n * 100 + i, name: 'H' + n + '-' + i, location: { city: 'X', country: 'Turkey' } }));
+  globalThis.fetch = async u => { const p = Number(new URL(u).searchParams.get('page')); return Response.json({ data: p <= 8 ? page(p) : [] }); };
+  const e = { DB: { __catalogMemory: cat }, HALALBOOKING_PARTNER_CODE: 'p', HALALBOOKING_SECRET_KEY: 's' };
+  const r1 = await runCatalogCron(e); assert.equal(r1.done, false);
+  const r2 = await runCatalogCron(e); assert.equal(r2.done, true);
+  assert.equal((await runCatalogCron(e)).skipped, 'à jour');
+  assert.equal((await cat.state()).count, 400);
+  globalThis.fetch = async () => new Response('', { status: 500 });
+  assert.equal((await runCatalogCron(e, Date.now() + 8 * 24 * 3600e3)).error, true);
+  assert.equal((await cat.state()).sync.lastError, 'SUPPLIER_ERROR');
+});

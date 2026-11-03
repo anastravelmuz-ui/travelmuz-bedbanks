@@ -42,7 +42,12 @@ async function catalogState() {
   const s = await (await fetch('/api/admin/catalog/state')).json().catch(() => null);
   if (!s) return;
   const sync = s.sync ?? {};
-  $('cat-state').textContent = `${s.count} établissement(s) dans le catalogue.` + (sync.completedAt ? ` Dernière synchronisation complète : ${new Date(sync.completedAt).toLocaleString('fr-FR')}.` : sync.totalPages ? ` Synchronisation en cours : page ${sync.nextPage} sur ${sync.totalPages}.` : ' Jamais synchronisé entièrement.');
+  const when = t => new Date(t).toLocaleString('fr-FR');
+  const running = sync.nextPage > 1;
+  $('cat-state').textContent = `${s.count.toLocaleString('fr-FR')} établissement(s) dans le catalogue. `
+    + (running ? `Import automatique en arrière-plan : page ${sync.nextPage}${sync.totalPages ? ' sur ' + sync.totalPages : ''}, dernier lot ${when(sync.lastBatchAt)}. Vous pouvez fermer cette page.` : '')
+    + (sync.completedAt ? ` Dernière synchronisation complète : ${when(sync.completedAt)} (renouvelée automatiquement tous les 7 jours).` : running ? '' : ' Import automatique en attente de démarrage.')
+    + (sync.lastError ? ` Dernière erreur : ${sync.lastError} (${when(sync.lastErrorAt)}), l’import reprendra seul.` : '');
   return sync;
 }
 $('cat-sync').onclick = async () => {

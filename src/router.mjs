@@ -160,6 +160,20 @@ async function matchSuggest(env, user, url) {
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 
+/**
+ * Synchronisation automatique (une exécution par minute) : continue l'import page par page ;
+ * une fois terminé, ne recommence qu'après 7 jours. Les erreurs sont notées dans l'état, sans arrêter les exécutions suivantes.
+ */
+export async function runCatalogCron(env, now = Date.now()) {
+  if (!env.DB || !env.HALALBOOKING_PARTNER_CODE || !env.HALALBOOKING_SECRET_KEY) return { skipped: 'configuration' };
+  const catalog = createCatalog(env.DB);
+  const sync = (await catalog.state()).sync ?? {};
+  if (sync.completedAt && now - sync.completedAt < 7 * 24 * 3600e3 && (sync.nextPage ?? 1) === 1) return { skipped: 'à jour' };
+  const from = sync.nextPage ?? 1;
+  try { return await syncBatch(catalog, from, hbCreds(env)); }
+  catch (e) { await catalog.setState('sync', { ...sync, lastError: e instanceof Error ? e.message : 'SUPPLIER_ERROR', lastErrorAt: now }); return { error: true }; }
+}
+
 async function catalogAdmin(request, env, user, path) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
   if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);

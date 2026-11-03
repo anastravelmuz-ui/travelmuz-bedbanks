@@ -9,8 +9,8 @@
 <section class="account-card" aria-labelledby="list"><h2 id="list">Comptes</h2><table class="users"><thead><tr><th>Email</th><th>Rôle</th><th>État</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table>
 <div id="row-out"></div></section></div>
 <section class="account-card mapping-card" id="catalog-card" hidden aria-labelledby="cat-title"><h2 id="cat-title">Catalogue Halalbooking</h2>
-<p class="lead">Le catalogue permet aux agents de chercher un hôtel par son nom. Les hôtels consultés s’y ajoutent automatiquement ; la synchronisation complète importe tout le catalogue (environ 900 pages, quelques minutes).</p>
-<p id="cat-state" class="msg info"></p><div class="map-row"><button class="btn secondary" type="button" id="cat-sync">Synchroniser le catalogue</button><button class="text-button" type="button" id="cat-stop" hidden>Interrompre</button></div></section>
+<p class="lead">Le catalogue permet aux agents de chercher un hôtel par son nom. Les hôtels consultés s’y ajoutent automatiquement. L’import complet tourne seul en arrière-plan sur le serveur (toutes les minutes) puis se renouvelle chaque semaine ; le bouton ci-dessous accélère l’import tant que la page reste ouverte.</p>
+<p id="cat-state" class="msg info"></p><div class="map-row"><button class="btn secondary" type="button" id="cat-sync">Accélérer l’import</button><button class="text-button" type="button" id="cat-stop" hidden>Interrompre</button></div></section>
 <section class="account-card mapping-card" id="place-card" hidden aria-labelledby="place-title"><h2 id="place-title">Hôtel à associer</h2>
 <p class="lead">Choisissez l’hôtel Halalbooking de référence, puis associez-le à TBO et à Bedsonline ci-dessous.</p>
 <div class="place-field adm-place"><label for="adm-place">Nom de l’hôtel (catalogue Halalbooking)</label><input id="adm-place" type="text" autocomplete="off" placeholder="ex. Golden Horn"><ul id="adm-suggest" class="place-suggest" hidden></ul></div>
