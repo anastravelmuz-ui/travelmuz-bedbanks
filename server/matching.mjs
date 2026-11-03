@@ -11,7 +11,9 @@ export function nameScore(a, b, stop = new Set()) {
   if (!A.size || !B.size) return normalize(a) === normalize(b) && normalize(a) ? 1 : 0;
   let inter = 0; for (const t of A) if (B.has(t)) inter++;
   const dice = (2 * inter) / (A.size + B.size);
-  const contained = [...A].every(t => B.has(t)) || [...B].every(t => A.has(t));
+  // Bonus d'inclusion seulement si le nom le plus court compte au moins 2 mots significatifs (évite « Sultanahmet Suites »).
+  const [small, big] = A.size <= B.size ? [A, B] : [B, A];
+  const contained = small.size >= 2 && [...small].every(t => big.has(t));
   return Math.min(1, contained ? Math.max(dice, 0.85) : dice);
 }
 

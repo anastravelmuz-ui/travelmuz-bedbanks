@@ -6,6 +6,7 @@ test('similarité des noms et distance', () => {
   assert.ok(nameScore('Deluxe Golden Horn Sultanahmet', 'Deluxe Golden Horn Sultanahmet Hotel') >= 0.85);
   assert.ok(nameScore('Deluxe Golden Horn Sultanahmet', 'Golden Horn Bosphorus Hotel') < 0.6);
   assert.equal(nameScore('Hotel', 'Hotel'), 1);
+  assert.ok(nameScore('Deluxe Golden Horn Sultanahmet', 'Sultanahmet Suites') < 0.5); // un seul mot commun
   assert.equal(distanceM(41.0, 28.97, 41.0, 28.97), 0);
   assert.ok(Math.abs(distanceM(41.0, 28.97, 41.001, 28.97) - 111) <= 1);
   assert.equal(distanceM(null, 1, 2, 3), null);
