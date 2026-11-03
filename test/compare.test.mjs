@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mealCodeFromText, mealCodeFromTbo } from '../public/meal-core.mjs';
-import { hbPanel, tboPanel, comparePanels } from '../public/compare-core.mjs';
+import { hbPanel, tboPanel, comparePanels, bedsPanel } from '../public/compare-core.mjs';
 
 const NOW = Date.parse('2026-11-03T08:00:00Z');
 const free = [{ until: '2027-03-03T00:00:00+03:00', penalty: 0 }, { penalty: 100 }];
@@ -48,4 +48,12 @@ test('comparaison : prix le plus bas désigné, jamais « comparable » sans pre
 test('devises différentes : aucun prix le plus bas désigné', () => {
   const c = comparePanels([{ provider: 'halalbooking', total: 900, currency: 'EUR' }, { provider: 'tbo', total: 800, currency: 'USD' }]);
   assert.equal(c.lowest, null); assert.equal(c.currencyMismatch, true);
+});
+
+test('Bedsonline : total = net le moins cher par occupation ; aucune chambre oubliée', () => {
+  const cancel = [{ amount: 100, from: '2027-03-01T23:59:00+03:00' }];
+  const o = (idx, net, mealCode = 'BB') => ({ roomIndexes: idx, occupancyMatched: true, net, currency: 'EUR', mealCode, cancellation: cancel });
+  const p = bedsPanel({ offers: [o([0], 500), o([0], 450), o([1, 2], 700)] }, {}, 3, NOW);
+  assert.deepEqual([p.total, p.pick.length, p.state, p.netConfirmed], [1150, 2, 'free', true]);
+  assert.equal(bedsPanel({ offers: [o([0], 500)] }, {}, 2, NOW).total, null); // chambre 2 non couverte
 });

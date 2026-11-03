@@ -6,6 +6,7 @@ import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
 import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
 import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
+import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
 
 // Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
 const ALLOW_NON_EUR = true;
@@ -60,7 +61,7 @@ async function readJson(request) {
   return JSON.parse(raw);
 }
 const sameOrigin = request => request.headers.get('origin') === new URL(request.url).origin;
-const supplierError = e => { const m = e instanceof Error ? e.message : ''; return TBO_ERRORS.includes(m) ? m : 'SUPPLIER_ERROR'; };
+const supplierError = e => { const m = e instanceof Error ? e.message : ''; return TBO_ERRORS.includes(m) || HOTELBEDS_ERRORS.includes(m) ? m : 'SUPPLIER_ERROR'; };
 
 async function tboSearch(request, env, user) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
@@ -85,6 +86,27 @@ async function tboSearch(request, env, user) {
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 
+async function bedsonlineSearch(request, env, user) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (request.method !== 'POST') return json({ error: 'NOT_FOUND' }, 404);
+  if (!sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
+  let criteria;
+  try { criteria = validateSearch(await readJson(request)); }
+  catch (e) { const detail = e instanceof Error && CRITERIA_ERRORS.includes(e.message) ? e.message : 'CRITERIA_INVALID'; return json({ error: 'INVALID_CRITERIA', detail }, 400); }
+  const cfg = hotelbedsConfig(env);
+  if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+  const mapping = env.DB ? await createD1MapStore(env.DB).get(criteria.hotelId, 'hotelbeds') : null;
+  if (!mapping) return json({ provider: 'Bedsonline', status: 'not_mapped', offers: [], observedAt: new Date().toISOString() });
+  try {
+    const r = await searchHotelbeds(criteria, mapping.code, cfg, fetch, { allowNonEur: ALLOW_NON_EUR });
+    if (r.offers.length) {
+      const details = await cachedDetails(env.DB ? createDetailsCache(env.DB) : null, 'hotelbeds:' + mapping.code, () => hotelbedsDetails(mapping.code, cfg));
+      if (details) r.offers = attachHotelbedsDetails(r.offers, details);
+    }
+    return json({ ...r, criteria, mapping: { code: mapping.code, name: mapping.name } });
+  } catch (e) { return json({ error: supplierError(e) }, 502); }
+}
+
 async function adminTbo(request, env, user, path, url) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
   if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);
@@ -102,6 +124,22 @@ async function adminTbo(request, env, user, path, url) {
     return json({ mapping: await store.get(m.hbPlaceId, m.provider) });
   }
   if (request.method !== 'GET') return json({ error: 'NOT_FOUND' }, 404);
+  if (path.startsWith('/api/admin/hotelbeds/')) {
+    const hcfg = hotelbedsConfig(env);
+    if (!hcfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+    try {
+      if (path === '/api/admin/hotelbeds/status') return json(await hotelbedsStatus(hcfg));
+      if (path === '/api/admin/hotelbeds/hotels') {
+        const name = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+        const r = await hotelbedsHotels((url.searchParams.get('destination') ?? '').trim().toUpperCase(), Number(url.searchParams.get('from') ?? 1), hcfg);
+        return json({ total: r.total, from: r.from, scanned: r.hotels.length, hotels: r.hotels.filter(h => !name || String(h.name ?? '').toLowerCase().includes(name)).slice(0, 50) });
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message === 'CRITERIA_INVALID') return json({ error: 'INVALID_CRITERIA' }, 400);
+      return json({ error: supplierError(e) }, 502);
+    }
+    return json({ error: 'NOT_FOUND' }, 404);
+  }
   const cfg = tboConfig(env);
   if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
   try {
@@ -140,7 +178,8 @@ export async function route(request, env) {
 
   if (path === '/api/halalbooking/search') return secure(await halalbookingSearch(request, env, user), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
-  if (path === '/api/admin/mappings' || path.startsWith('/api/admin/tbo/')) return secure(await adminTbo(request, env, user, path, url), { noStore: true });
+  if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
+  if (path === '/api/admin/mappings' || path.startsWith('/api/admin/tbo/') || path.startsWith('/api/admin/hotelbeds/')) return secure(await adminTbo(request, env, user, path, url), { noStore: true });
   if (path.startsWith('/api/')) return secure(json({ error: 'NOT_FOUND' }, 404));
 
   const isPublic = PUBLIC_PATHS.has(path) || path.startsWith('/fonts/');

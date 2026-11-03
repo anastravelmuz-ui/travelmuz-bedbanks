@@ -1,6 +1,7 @@
 // Comparateur multi-fournisseurs : calcul des cartouches et de la comparabilité (sans DOM, testé dans Node).
 import { cancellationState } from './live-core.mjs';
 import { tboCancellationState } from './tbo-core.mjs';
+import { hbedsCancellationState } from './hotelbeds-core.mjs';
 
 // La nature nette du montant TBO (TotalFare) n'est pas encore confirmée par TBO : pas de comparaison stricte.
 export const TBO_NET_CONFIRMED = false;
@@ -41,6 +42,29 @@ export function tboPanel(result, f = {}, now = Date.now()) {
   const pick = offers.filter(o => typeof o.cost === 'number').sort((a, b) => a.cost - b.cost)[0] ?? null;
   return { provider: 'tbo', offers, pick: pick ? [pick] : null, received: result.offers.length, currency: pick?.currency ?? null,
     total: pick?.cost ?? null, netConfirmed: TBO_NET_CONFIRMED, mealCode: pick?.mealCode ?? null, state: pick?.state ?? 'unknown' };
+}
+
+/** Bedsonline : chaque tarif couvre une occupation (une ou plusieurs chambres identiques) ; coût = net fourni. */
+export function bedsPanel(result, f = {}, rooms = 1, now = Date.now()) {
+  if (!result?.offers) return null;
+  const offers = result.offers.map(o => ({ ...o, provider: 'bedsonline', cost: o.net, state: hbedsCancellationState(o, now) }))
+    .filter(o => (!f.meal || o.mealCode === f.meal) && (!f.refund || o.state === f.refund) && passBudget(o.cost, f.budget))
+    .sort(order(f.sort));
+  const occupancies = [...new Map(result.offers.filter(o => o.occupancyMatched).map(o => [o.roomIndexes.join(','), o.roomIndexes])).values()];
+  const covered = new Set(occupancies.flat());
+  const pick = [];
+  for (const idx of occupancies) {
+    const cheapest = offers.filter(o => o.roomIndexes.join(',') === idx.join(',') && typeof o.cost === 'number').sort((a, b) => a.cost - b.cost)[0];
+    if (!cheapest) return { provider: 'bedsonline', offers, pick: null, total: null, received: result.offers.length, missingRoom: idx[0] };
+    pick.push(cheapest);
+  }
+  if (covered.size < rooms) return { provider: 'bedsonline', offers, pick: null, total: null, received: result.offers.length, missingRoom: [...Array(rooms).keys()].find(i => !covered.has(i)) };
+  return {
+    provider: 'bedsonline', offers, pick, received: result.offers.length, currency: pick[0]?.currency ?? null,
+    total: Math.round(pick.reduce((s, o) => s + o.cost, 0) * 100) / 100, netConfirmed: true,
+    mealCode: new Set(pick.map(o => o.mealCode)).size === 1 ? pick[0].mealCode : null,
+    state: new Set(pick.map(o => o.state)).size === 1 ? pick[0].state : 'unknown',
+  };
 }
 
 /** Désigne le prix affiché le plus bas et dit s'il est strictement comparable, avec les raisons sinon. */

@@ -17,4 +17,10 @@
 <form id="map-hotel-form" class="map-row" hidden novalidate><label>Nom de l’hôtel contient<input name="q" value="Golden Horn"></label><button class="btn secondary" type="submit">Chercher l’hôtel</button></form>
 <p id="map-msg" class="msg" role="status" hidden></p>
 <div id="map-hotels" class="map-list"></div></section>
-</main><script type="module" src="/comptes.mjs"></script><script type="module" src="/admin-hotels.mjs"></script></body></html>
+<section class="account-card mapping-card" id="hb-mapping" hidden aria-labelledby="hbmap-title"><h2 id="hbmap-title">Correspondance des hôtels · Bedsonline</h2>
+<p class="lead">Bedsonline (Hotelbeds) a ses propres codes d’hôtel. Vérifiez nom, adresse et catégorie avant d’associer. Attention : une clé d’évaluation est limitée à 50 appels par jour.</p>
+<div class="map-row"><button class="btn secondary" type="button" id="hb-status-btn">Tester la connexion</button><span id="hb-status-out" class="msg info" hidden></span></div>
+<div id="hb-current" class="msg info"></div>
+<form id="hb-search" class="map-row" novalidate><label>Code destination Hotelbeds<input name="destination" value="IST" maxlength="6" required></label><label>Nom de l’hôtel contient<input name="q" value="Golden Horn"></label><button class="btn secondary" type="submit">Chercher l’hôtel</button></form>
+<p id="hb-msg" class="msg" role="status" hidden></p><div id="hb-hotels" class="map-list"></div><button class="text-button" type="button" id="hb-next" hidden>Chercher dans les 1 000 hôtels suivants</button></section>
+</main><script type="module" src="/comptes.mjs"></script><script type="module" src="/admin-hotels.mjs"></script><script type="module" src="/admin-bedsonline.mjs"></script></body></html>

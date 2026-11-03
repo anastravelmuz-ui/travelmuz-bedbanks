@@ -1,7 +1,8 @@
 // Comparateur réel multi-fournisseurs : présentation en cartouches de la maquette ChatGPT, données Halalbooking et TBO.
 import { filterOffers, cancellationState, cutoffLabel } from './live-core.mjs';
 import { tboCancellationState, parseTboDate } from './tbo-core.mjs';
-import { hbPanel, tboPanel, comparePanels } from './compare-core.mjs';
+import { hbPanel, tboPanel, bedsPanel, comparePanels } from './compare-core.mjs';
+import { hbedsFreeUntil } from './hotelbeds-core.mjs';
 import { MEAL_LABELS } from './meal-core.mjs';
 
 const $ = s => document.querySelector(s);
@@ -12,6 +13,7 @@ const nightsBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864
 
 let snapshot = null, loading = false, hbState = null; // hbState : null | 'loading' | code d'erreur
 let tbo = null; // { status, offers, currency…, nationality } ou { error }
+let beds = null; // Bedsonline : même forme
 const moneyIn = (n, cur) => { try { return typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur || 'EUR' }).format(n) : 'Montant non renseigné'; } catch { return `${n} ${cur ?? ''}`; } };
 let rooms = [{ adults: 2, children: [] }];
 let draft = null;
@@ -171,7 +173,7 @@ const mealLine = (label, code) => `<p>♧ ${esc(label ?? (code ? MEAL_LABELS[cod
 function panelBody(id) {
   const nRooms = rooms.length;
   if (id === 'ratehawk') return { top: 'NON CONNECTÉ', off: true, html: '<div class="state">Accès API en attente. Aucun tarif n’est affiché tant que la connexion n’est pas établie.</div>' };
-  if (id === 'bedsonline') return { top: 'NON CONNECTÉ', off: true, html: '<div class="state">Accès de test Hotelbeds validé séparément ; pas encore raccordé au comparateur.</div>' };
+  if (id === 'bedsonline') return bedsBody(nRooms);
   if (id === 'halalbooking') {
     if (!hbState && !snapshot) return { top: 'OFFRES RÉELLES', html: '<div class="state">Prêt à rechercher.</div>' };
     if (hbState === 'loading') return { top: 'OFFRES RÉELLES', html: '<div class="state">Recherche en cours…</div>' };
@@ -201,10 +203,55 @@ function panelBody(id) {
     ${mealLine(o.meal, o.mealCode)}${tboCondition(o)}<p>${typeof o.tax === 'number' ? `Dont taxes ${moneyIn(o.tax, o.currency)}` : 'Taxes non détaillées'}${atProperty.length ? ` · <span class="tbo-warn">à payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}`).join(', ')}</span>` : ''}</p></div>` };
 }
 
+
+// ---- Bedsonline / Hotelbeds ----
+const BEDS_ERRORS = {
+  CONFIGURATION_MISSING: 'Les accès Bedsonline (HOTELBEDS_API_KEY, HOTELBEDS_SECRET) ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
+  SUPPLIER_AUTH_FAILED: 'Bedsonline a refusé l’accès : clé, secret ou environnement (test/production) à vérifier. Ce n’est pas une absence de chambres.',
+  QUOTA_EXCEEDED: 'Quota d’appels Bedsonline atteint (50 par jour en évaluation). Réessayez demain. Ce n’est pas une absence de chambres.',
+  SUPPLIER_UNREACHABLE: 'Bedsonline est injoignable pour le moment. Ce n’est pas une absence de chambres.',
+  SUPPLIER_ERROR: 'Bedsonline a renvoyé une erreur. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.',
+};
+const envTag = () => (beds?.environment === 'production' ? 'OFFRES RÉELLES' : 'TEST · DONNÉES D’ÉVALUATION');
+function bedsCondition(o) {
+  if (o.state === 'free') return `<p class="condition">✓ Sans frais avant le ${esc(cutoffLabel(hbedsFreeUntil(o)))}</p>`;
+  return `<p class="condition warn">${esc(labels[o.state])}</p>`;
+}
+function bedsTaxes(o) {
+  const at = o.taxesAtHotel ?? [];
+  return at.length ? `<span class="tbo-warn">à payer sur place : ${at.map(t => `${esc(t.type ?? 'taxe')} ${moneyIn(t.amount, t.currency)}`).join(', ')}</span>` : (o.taxesAllIncluded ? 'Taxes incluses' : 'Taxes à vérifier');
+}
+function bedsBody(nRooms) {
+  if (!beds) return { top: envTag(), html: '<div class="state">Prêt à rechercher.</div>' };
+  if (beds.loading) return { top: envTag(), html: '<div class="state">Recherche en cours…</div>' };
+  if (beds.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(BEDS_ERRORS[beds.error] ?? ERRORS[beds.error] ?? 'La recherche Bedsonline n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
+  if (beds.status === 'not_mapped') return { top: envTag(), html: '<div class="state">Hôtel pas encore associé à un code Bedsonline. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>' };
+  if (beds.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">Bedsonline renvoie des tarifs en ${esc(beds.currency)}. L’euro est imposé : offres masquées, sans conversion.</div>` };
+  const p = panels.bedsonline;
+  if (!p.received) return { top: envTag(), html: '<div class="state">Bedsonline n’a retourné aucune disponibilité pour ces critères.</div>' };
+  if (!p.pick) return { top: envTag(), count: p.offers.length, html: `<div class="state">${p.offers.length ? `Aucune offre pour la chambre ${(p.missingRoom ?? 0) + 1} avec ces filtres : pas de total partiel.` : 'Aucune offre ne correspond à ces filtres.'}</div>` };
+  const photo = p.pick.find(o => o.photos?.length)?.photos[0];
+  const amount = p.currency === 'EUR' ? money(p.total).replace('€', '<small>€</small>') : esc(moneyIn(p.total, p.currency));
+  return { top: envTag(), count: p.offers.length, html: `<div class="price">${amount}</div>
+    <div class="price-label">Net agence · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Net fourni par Bedsonline${p.pick.some(o => o.recheck) ? ' · prix à revérifier (RECHECK)' : ''}</div>${p.currency !== 'EUR' ? `<div class="secondary-amount tbo-warn">Devise ${esc(p.currency ?? 'inconnue')} : affichée pour les tests, non comparée.</div>` : ''}
+    <div class="room-info">${photo ? `<img class="panel-photo" src="${esc(photo)}" alt="${esc(p.pick[0].room ?? 'Chambre')}" loading="lazy" referrerpolicy="no-referrer">` : ''}<strong>${p.pick.map(o => `${o.units > 1 ? `${o.units} × ` : ''}${esc(o.room ?? 'Chambre non renseignée')}`).join('<br>')}</strong>
+    ${mealLine(new Set(p.pick.map(o => o.meal)).size === 1 ? p.pick[0].meal : 'Pensions différentes selon la chambre', p.mealCode)}${new Set(p.pick.map(o => o.state)).size === 1 ? bedsCondition(p.pick[0]) : '<p class="condition warn">Conditions différentes selon la chambre</p>'}<p>${bedsTaxes(p.pick[0])}</p></div>` };
+}
+function bedsCard(o) {
+  const photos = (o.photos ?? []).slice(0, 8);
+  return `<article class="live-card"><div><span class="tag">Bedsonline · ${beds?.environment === 'production' ? 'offre réelle' : 'test'}</span><h3>${o.units > 1 ? `${o.units} × ` : ''}${esc(o.room ?? 'Chambre non renseignée')}</h3>
+    <p>${esc(o.meal ?? 'Pension non renseignée')} · ${esc(o.adults ?? '?')} adulte(s)${o.childrenAges?.length ? ` + enfants ${o.childrenAges.join(', ')} ans` : ''}${o.rateClass === 'NRF' ? ' · tarif non remboursable' : ''}</p>
+    ${bedsCondition(o)}${o.occupancyMatched ? '' : '<p class="error">Occupation renvoyée différente de la demande : à vérifier.</p>'}<p>${bedsTaxes(o)}</p></div>
+    <div class="live-price">${moneyIn(o.net, o.currency)}<small>Net agence fourni par Bedsonline</small>${o.sellingRate ? `<small>Prix de vente ${o.hotelMandatory ? 'imposé' : 'conseillé'} : ${moneyIn(o.sellingRate, o.currency)}</small>` : ''}</div>
+    ${photos.length ? `<div class="room-photos">${photos.map((u, k) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer"><img src="${esc(u)}" alt="${esc(o.room ?? 'Chambre')} · photo ${k + 1}" loading="lazy" referrerpolicy="no-referrer"></a>`).join('')}</div>` : ''}
+    <details><summary>Chambre, annulation et détails</summary>${o.roomInfo?.maxPax ? `<p>Capacité maximale : ${esc(o.roomInfo.maxPax)} personne(s)${o.roomInfo.maxAdults ? `, dont ${esc(o.roomInfo.maxAdults)} adulte(s)` : ''}.</p>` : ''}
+    ${o.cancellation?.length ? '<ul>' + o.cancellation.map(c => `<li>À partir du ${esc(cutoffLabel(c.from))} : ${moneyIn(c.amount, o.currency)} de frais.</li>`).join('') + '</ul>' : '<p>Conditions d’annulation non renseignées : à vérifier.</p>'}
+    ${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.recheck ? '<p class="tbo-warn">Tarif à revérifier avant réservation (RECHECK).</p>' : ''}<p>Aucune équivalence de chambre avec les autres fournisseurs n’est présumée.</p></details></article>`;
+}
 function render() {
   const f = filters();
-  panels = { halalbooking: snapshot ? hbPanel(snapshot, f) : null, tbo: tbo?.offers ? tboPanel(tbo, f) : null };
-  const cmp = comparePanels([panels.halalbooking, panels.tbo]);
+  panels = { halalbooking: snapshot ? hbPanel(snapshot, f) : null, tbo: tbo?.offers ? tboPanel(tbo, f) : null, bedsonline: beds?.offers ? bedsPanel(beds, f, rooms.length) : null };
+  const cmp = comparePanels([panels.halalbooking, panels.tbo, panels.bedsonline]);
   const insight = $('#result-insight');
   if (cmp.lowest) {
     const name = PROVIDERS.find(p => p.id === cmp.lowest.provider).name;
@@ -230,8 +277,9 @@ function openOffers(id) {
   const p = panels[id];
   if (!p?.offers?.length) return;
   const hotel = $('#results-title').textContent;
-  $('#offers-title').innerHTML = `<h2>${id === 'tbo' ? 'TBO' : 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
+  $('#offers-title').innerHTML = `<h2>${{ tbo: 'TBO', bedsonline: 'Bedsonline' }[id] ?? 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : id === 'bedsonline' ? (beds?.environment === 'production' ? 'Offres réelles' : 'Données d’évaluation (test)') : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
   if (id === 'tbo') $('#offers-body').innerHTML = p.offers.map(tboCard).join('');
+  else if (id === 'bedsonline') $('#offers-body').innerHTML = p.offers.map(bedsCard).join('');
   else {
     const many = rooms.length > 1 || (snapshot?.criteria?.rooms?.length ?? 1) > 1;
     $('#offers-body').innerHTML = snapshot.criteria.rooms.map((r, i) => {
@@ -261,7 +309,7 @@ $('#live-search').onsubmit = async e => {
   if (err) { $('#live-error').textContent = err; return; }
   loading = true;
   const q = criteria(), nationality = $('#live-nationality').value;
-  snapshot = null; hbState = 'loading'; tbo = { loading: true };
+  snapshot = null; hbState = 'loading'; tbo = { loading: true }; beds = { loading: true };
   $('#pending').hidden = true; $('#live-error').textContent = '';
   $('#live-status').textContent = 'Recherche en cours auprès des fournisseurs connectés…'; $('#live-submit').disabled = true;
   const n = nightsBetween(q.checkin, q.checkout);
@@ -282,11 +330,12 @@ $('#live-search').onsubmit = async e => {
     }
     render();
   });
-  await Promise.all([hbRun, tboRun]);
+  const bedsRun = post('/api/bedsonline/search', q).then(r => { beds = r.ok ? r.d : { error: r.error }; render(); });
+  await Promise.all([hbRun, tboRun, bedsRun]);
   $('#live-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix à reconfirmer chez le fournisseur.`;
   clearFilters(); markPending();
   loading = false; $('#live-submit').disabled = false;
 };
 const CRITERIA_CODES = ['CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
 guestSummary(); markPending(); render();
-setInterval(() => { if (snapshot || tbo?.offers) render(); }, 60000);
+setInterval(() => { if (snapshot || tbo?.offers || beds?.offers) render(); }, 60000);
