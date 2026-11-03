@@ -162,17 +162,6 @@ async function adminTbo(request, env, user, path, url) {
       return json({ cities: cities.filter(c => !name || c.name.toLowerCase().includes(name)).slice(0, 50) });
     }
     if (path === '/api/admin/tbo/details') return json(await tboHotelDetails(url.searchParams.get('code') ?? '', cfg));
-    // Diagnostic administrateur : TBO accepte-t-il une devise demandée ? (champs non documentés pour cette API)
-    if (path === '/api/admin/tbo/currency-test') {
-      const code = url.searchParams.get('code') ?? '';
-      const q = { hotelId: 0, checkin: '2027-03-04', checkout: '2027-03-07', country: 'FR', rooms: [{ adults: 2, children: [] }] };
-      const results = {};
-      for (const [label, extra] of [['sans champ', null], ['PreferredCurrency', { PreferredCurrency: 'EUR' }], ['Currency', { Currency: 'EUR' }]]) {
-        try { const r = await searchTbo(q, code, 'FR', cfg, fetch, { allowNonEur: true, extraFields: extra }); results[label] = { status: r.status, devises: [...new Set(r.offers.map(o => o.currency))], offres: r.offers.length, minimum: Math.min(...r.offers.map(o => o.price ?? Infinity)) }; }
-        catch (e) { results[label] = { erreur: e instanceof Error ? e.message : 'SUPPLIER_ERROR' }; }
-      }
-      return json(results);
-    }
     if (path === '/api/admin/tbo/hotels') {
       const name = (url.searchParams.get('q') ?? '').trim().toLowerCase();
       const hotels = await tboHotels(url.searchParams.get('city') ?? '', cfg);
