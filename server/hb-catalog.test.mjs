@@ -14,10 +14,10 @@ test('normalisation des noms (accents, ponctuation)', () => {
 
 test('synchronisation par lots et suggestions hôtels / villes', async () => {
   const cat = createMemoryCatalog();
-  const pages = { 1: [place(4, 'Deluxe Golden Horn Sultanahmet', 'Istanbul'), place(5, 'Bera Alanya', 'Alanya')], 2: [place(6, 'Golden Horn Bosphorus', 'Istanbul')], 3: [place(7, 'Riad Marrakech', 'Marrakech', 'Morocco')] };
-  const fetcher = async url => { const p = Number(new URL(url).searchParams.get('page')); return Response.json({ page: p, total_pages: 3, total_results: 4, data: pages[p] }); };
+  const pages = { 1: [place(4, 'Deluxe Golden Horn Sultanahmet', 'Istanbul'), place(5, 'Bera Alanya', 'Alanya')], 2: [place(6, 'Golden Horn Bosphorus', 'Istanbul'), place(8, 'Side Resort', 'Side')], 3: [place(7, 'Riad Marrakech', 'Marrakech', 'Morocco')] };
+  const fetcher = async url => { const p = Number(new URL(url).searchParams.get('page')); return Response.json({ page: p, total_pages: 3, total_results: 4, results_per_page: 2, data: pages[p], links: p < 3 ? { next: 'x' } : {} }); };
   const b1 = await syncBatch(cat, 1, creds, fetcher, 2);
-  assert.deepEqual([b1.imported, b1.nextPage, b1.done], [3, 3, false]);
+  assert.deepEqual([b1.imported, b1.nextPage, b1.done], [4, 3, false]);
   const b2 = await syncBatch(cat, 3, creds, fetcher, 2);
   assert.deepEqual([b2.imported, b2.done], [1, true]);
   const s = await cat.suggest('golden horn');
