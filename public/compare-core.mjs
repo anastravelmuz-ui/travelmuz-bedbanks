@@ -47,6 +47,8 @@ export function tboPanel(result, f = {}, now = Date.now()) {
 export function comparePanels(panels) {
   const priced = panels.filter(p => p && typeof p.total === 'number');
   if (!priced.length) return { lowest: null, comparable: false, reasons: [] };
+  // Devises différentes : aucun « prix le plus bas » n'est désigné (pas de conversion).
+  if (new Set(priced.map(p => p.currency)).size > 1) return { lowest: null, comparable: false, reasons: ['devises différentes : aucun prix le plus bas désigné, pas de conversion'], currencyMismatch: true };
   const lowest = priced.reduce((a, b) => (b.total < a.total ? b : a));
   if (priced.length < 2) return { lowest, comparable: false, reasons: ['un seul fournisseur a des offres pour ces critères'] };
   const reasons = [];

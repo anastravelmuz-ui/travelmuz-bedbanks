@@ -4,7 +4,10 @@ import { createAuth } from '../server/auth-core.mjs';
 import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
-import { tboConfig, searchTbo, tboCities, tboHotels, TBO_ERRORS } from '../server/tbo.mjs';
+import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, TBO_ERRORS } from '../server/tbo.mjs';
+
+// Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
+const ALLOW_NON_EUR = true;
 import { createD1MapStore, validateMapping } from '../server/hotel-map.mjs';
 
 export const FIRST_ADMIN_EMAIL = 'anas@travelmuz.fr'; // D-015
@@ -71,7 +74,7 @@ async function tboSearch(request, env, user) {
   const mapping = env.DB ? await createD1MapStore(env.DB).get(criteria.hotelId, 'tbo') : null;
   if (!mapping) return json({ provider: 'TBO', status: 'not_mapped', offers: [], observedAt: new Date().toISOString() });
   try {
-    const r = await searchTbo(criteria, mapping.code, body.nationality, cfg);
+    const r = await searchTbo(criteria, mapping.code, body.nationality, cfg, fetch, { allowNonEur: ALLOW_NON_EUR });
     return json({ ...r, criteria, mapping: { code: mapping.code, name: mapping.name } });
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
@@ -101,6 +104,7 @@ async function adminTbo(request, env, user, path, url) {
       const cities = await tboCities(url.searchParams.get('country') ?? '', cfg);
       return json({ cities: cities.filter(c => !name || c.name.toLowerCase().includes(name)).slice(0, 50) });
     }
+    if (path === '/api/admin/tbo/details') return json(await tboHotelDetails(url.searchParams.get('code') ?? '', cfg));
     if (path === '/api/admin/tbo/hotels') {
       const name = (url.searchParams.get('q') ?? '').trim().toLowerCase();
       const hotels = await tboHotels(url.searchParams.get('city') ?? '', cfg);

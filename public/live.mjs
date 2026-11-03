@@ -184,10 +184,11 @@ function panelBody(id) {
   if (!p.received) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">TBO n’a retourné aucune disponibilité pour ces critères.</div>' };
   if (!p.pick) return { top: 'STAGING · DONNÉES DE TEST', count: 0, html: '<div class="state">Aucune offre ne correspond à ces filtres.</div>' };
   const o = p.pick[0], atProperty = o.supplementsAtProperty ?? [];
-  return { top: 'STAGING · DONNÉES DE TEST', count: p.offers.length, html: `<div class="price">${money(p.total).replace('€', '<small>€</small>')}</div>
-    <div class="price-label">Montant TBO · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Nature nette à confirmer avec TBO</div>
+  const amount = p.currency === 'EUR' ? money(p.total).replace('€', '<small>€</small>') : esc(moneyIn(p.total, p.currency));
+  return { top: p.currency === 'EUR' ? 'STAGING · DONNÉES DE TEST' : `STAGING · DEVISE ${p.currency ?? '?'} (TEST)`, count: p.offers.length, html: `<div class="price">${amount}</div>
+    <div class="price-label">Montant TBO · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Nature nette à confirmer avec TBO</div>${p.currency !== 'EUR' ? `<div class="secondary-amount tbo-warn">Devise ${esc(p.currency ?? 'inconnue')} : affichée temporairement pour les tests, non comparée à l’euro.</div>` : ''}
     <div class="room-info"><strong>${o.roomNames.length ? o.roomNames.map((n, i) => (o.roomNames.length > 1 ? `Ch. ${i + 1} : ` : '') + esc(n)).join('<br>') : 'Chambre non renseignée'}</strong>
-    ${mealLine(o.meal, o.mealCode)}${tboCondition(o)}<p>${typeof o.tax === 'number' ? `Dont taxes ${money(o.tax)}` : 'Taxes non détaillées'}${atProperty.length ? ` · <span class="tbo-warn">à payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}`).join(', ')}</span>` : ''}</p></div>` };
+    ${mealLine(o.meal, o.mealCode)}${tboCondition(o)}<p>${typeof o.tax === 'number' ? `Dont taxes ${moneyIn(o.tax, o.currency)}` : 'Taxes non détaillées'}${atProperty.length ? ` · <span class="tbo-warn">à payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}`).join(', ')}</span>` : ''}</p></div>` };
 }
 
 function render() {
@@ -199,6 +200,9 @@ function render() {
     const name = PROVIDERS.find(p => p.id === cmp.lowest.provider).name;
     insight.hidden = false; insight.className = 'insight' + (cmp.comparable ? '' : ' warn');
     insight.innerHTML = `<span>↘</span><span><strong>${money(cmp.lowest.total)}</strong> · ${name} · ${cmp.comparable ? 'Prix le plus bas à pension, chambre et annulation équivalentes.' : `Prix affiché le plus bas, à vérifier : ${esc(cmp.reasons.join(', '))}.`}</span>`;
+  } else if (cmp.currencyMismatch) {
+    insight.hidden = false; insight.className = 'insight warn';
+    insight.innerHTML = '<span>≠</span><span>Devises différentes entre fournisseurs : aucun prix le plus bas n’est désigné, aucune conversion n’est faite.</span>';
   } else insight.hidden = true;
   $('#provider-grid').innerHTML = PROVIDERS.map(prov => {
     const b = panelBody(prov.id);

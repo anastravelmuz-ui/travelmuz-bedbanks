@@ -44,3 +44,8 @@ test('comparaison : prix le plus bas désigné, jamais « comparable » sans pre
   assert.deepEqual(comparePanels([a]).reasons, ['un seul fournisseur a des offres pour ces critères']);
   assert.equal(comparePanels([]).lowest, null);
 });
+
+test('devises différentes : aucun prix le plus bas désigné', () => {
+  const c = comparePanels([{ provider: 'halalbooking', total: 900, currency: 'EUR' }, { provider: 'tbo', total: 800, currency: 'USD' }]);
+  assert.equal(c.lowest, null); assert.equal(c.currencyMismatch, true);
+});

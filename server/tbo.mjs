@@ -79,7 +79,7 @@ export function tboSearchBody(q, hotelCode, nationality) {
   };
 }
 
-export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch) {
+export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch, { allowNonEur = false } = {}) {
   if (!cfg) throw new Error('CONFIGURATION_MISSING');
   const body = tboSearchBody(q, hotelCode, nationality);
   const data = await post(cfg.search + '/Search', body, cfg, fetcher, 25000);
@@ -114,6 +114,30 @@ export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch)
   }
   // Euro imposé (D-020) : TBO n'accepte pas de devise dans la requête (devise du compte). Aucune conversion silencieuse.
   const foreign = [...new Set(offers.map(o => o.currency).filter(c => c !== 'EUR'))];
-  if (foreign.length) return { ...base, status: 'currency_not_eur', currency: foreign.join(', '), offers: [], hidden: offers.length };
+  if (foreign.length && !allowNonEur) return { ...base, status: 'currency_not_eur', currency: foreign.join(', '), offers: [], hidden: offers.length };
+  if (foreign.length) return { ...base, status: 'ok', currencyWarning: foreign.join(', '), offers };
   return { ...base, status: offers.length ? 'ok' : 'no_availability', offers };
+}
+
+/** HotelDetails (données statiques) : images d'hôtel et, si TBO les fournit, détails par chambre. */
+const imgList = v => (Array.isArray(v) ? v : typeof v === 'string' ? [v] : []).filter(u => typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u.trim())).map(u => u.trim()).slice(0, 30);
+export async function tboHotelDetails(hotelCode, cfg, fetcher = fetch) {
+  if (!/^\d{1,12}$/.test(String(hotelCode))) throw new Error('CRITERIA_INVALID');
+  const data = await post(cfg.base + '/Hoteldetails', { Hotelcodes: String(hotelCode), Language: 'EN', IsRoomDetailRequired: true }, cfg, fetcher, 25000);
+  const h = Array.isArray(data?.HotelDetails) ? data.HotelDetails[0] : null;
+  if (data?.Status?.Code !== 200 || !h) {
+    const e = new Error('SUPPLIER_INVALID_RESPONSE');
+    e.supplierStatus = { code: data?.Status?.Code ?? null, description: String(data?.Status?.Description ?? '').slice(0, 200), keys: data && typeof data === 'object' ? Object.keys(data).slice(0, 10) : [] };
+    throw e;
+  }
+  const roomsRaw = h.RoomDetails ?? h.Rooms ?? h.RoomDetail ?? null;
+  const rooms = (Array.isArray(roomsRaw) ? roomsRaw : []).map(r => ({
+    id: r.RoomId ?? r.RoomID ?? r.Id ?? null, name: r.RoomName ?? r.Name ?? null,
+    images: imgList(r.Images ?? r.RoomImages ?? r.Image ?? r.imageURL),
+  }));
+  return {
+    code: String(h.HotelCode ?? hotelCode), name: h.HotelName ?? null, hotelImages: imgList(h.Images), rooms,
+    // Diagnostic : structure reçue, sans contenu
+    structure: { hotelKeys: Object.keys(h).slice(0, 40), roomKeys: Array.isArray(roomsRaw) && roomsRaw[0] ? Object.keys(roomsRaw[0]).slice(0, 40) : [] },
+  };
 }

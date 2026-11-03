@@ -80,3 +80,19 @@ test('euro imposé : offres TBO en autre devise masquées, jamais converties', a
   const eur = await searchTbo(q, '1279415', 'FR', cfg, async () => Response.json(sample));
   assert.equal(eur.offers[0].mealCode, 'BB');
 });
+
+test('mode test : devise autre que EUR autorisée mais signalée', async () => {
+  const usd = structuredClone(sample); usd.HotelResult[0].Currency = 'USD';
+  const r = await searchTbo(q, '1279415', 'FR', cfg, async () => Response.json(usd), { allowNonEur: true });
+  assert.deepEqual([r.status, r.currencyWarning, r.offers[0].currency], ['ok', 'USD', 'USD']);
+});
+import { tboHotelDetails } from './tbo.mjs';
+test('HotelDetails : images hôtel et chambre (HTTPS), structure de diagnostic', async () => {
+  const d = await tboHotelDetails('1235939', cfg, async (url, init) => {
+    assert.equal(String(url), cfg.base + '/Hoteldetails'); assert.equal(JSON.parse(init.body).IsRoomDetailRequired, true);
+    return Response.json({ Status: { Code: 200 }, HotelDetails: [{ HotelCode: '1235939', HotelName: 'Deluxe Golden Horn', Images: ['https://api.tbotechnology.in/imageresource.aspx?img=a', 'http://x/b'], RoomDetails: [{ RoomId: '9', RoomName: 'Standard', Images: ['https://img.test/r.jpg'] }] }] });
+  });
+  assert.deepEqual(d.hotelImages, ['https://api.tbotechnology.in/imageresource.aspx?img=a']);
+  assert.deepEqual(d.rooms, [{ id: '9', name: 'Standard', images: ['https://img.test/r.jpg'] }]);
+  assert.deepEqual(d.structure.roomKeys, ['RoomId', 'RoomName', 'Images']);
+});
