@@ -1,3 +1,4 @@
+import { mealCodeFromTbo } from '../public/meal-core.mjs';
 // Connecteur TBO Holidays (API Hotel REST/JSON, authentification Basic).
 // Documentation : https://apidoc.tektravels.com/hotelnew/ (lue le 2 novembre 2026).
 // Consultation seule : aucune méthode PreBook/Book/Cancel n'est implémentée.
@@ -97,7 +98,7 @@ export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch)
     offers.push({
       provider: 'TBO', hotelCode: String(hotel.HotelCode ?? hotelCode), currency: hotel.Currency ?? null,
       roomNames: Array.isArray(room.Name) ? room.Name.map(String) : [],
-      meal: mealLabel(room.MealType), mealCode: room.MealType ?? null, inclusion: room.Inclusion ?? null,
+      meal: mealLabel(room.MealType), mealCode: mealCodeFromTbo(room.MealType), supplierMealType: room.MealType ?? null, inclusion: room.Inclusion ?? null,
       price: typeof room.TotalFare === 'number' ? room.TotalFare : null, // total de l'unité réservable, toutes chambres
       tax: typeof room.TotalTax === 'number' ? room.TotalTax : null,
       priceBasis: 'tbo_totalfare_all_rooms_nature_to_confirm',
@@ -111,5 +112,8 @@ export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch)
       withTransfers: room.WithTransfers === true,
     });
   }
+  // Euro imposé (D-020) : TBO n'accepte pas de devise dans la requête (devise du compte). Aucune conversion silencieuse.
+  const foreign = [...new Set(offers.map(o => o.currency).filter(c => c !== 'EUR'))];
+  if (foreign.length) return { ...base, status: 'currency_not_eur', currency: foreign.join(', '), offers: [], hidden: offers.length };
   return { ...base, status: offers.length ? 'ok' : 'no_availability', offers };
 }

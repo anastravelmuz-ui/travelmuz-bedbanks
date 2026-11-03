@@ -1,6 +1,8 @@
-// Comparateur Halalbooking réel : recherche par chambres (adultes, enfants et âges), net agence fourni, filtres locaux.
+// Comparateur réel multi-fournisseurs : présentation en cartouches de la maquette ChatGPT, données Halalbooking et TBO.
 import { filterOffers, cancellationState, cutoffLabel } from './live-core.mjs';
-import { tboCancellationState } from './tbo-core.mjs';
+import { tboCancellationState, parseTboDate } from './tbo-core.mjs';
+import { hbPanel, tboPanel, comparePanels } from './compare-core.mjs';
+import { MEAL_LABELS } from './meal-core.mjs';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -8,7 +10,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const money = n => typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n) : 'Prix non renseigné';
 const nightsBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
-let snapshot = null, loading = false;
+let snapshot = null, loading = false, hbState = null; // hbState : null | 'loading' | code d'erreur
 let tbo = null; // { status, offers, currency…, nationality } ou { error }
 const moneyIn = (n, cur) => { try { return typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur || 'EUR' }).format(n) : 'Montant non renseigné'; } catch { return `${n} ${cur ?? ''}`; } };
 let rooms = [{ adults: 2, children: [] }];
@@ -128,48 +130,104 @@ function tboCard(o) {
     <div class="live-price">${moneyIn(o.price, o.currency)}<small>Montant TBO · total séjour, toutes chambres</small>${typeof o.tax === 'number' ? `<small>dont taxes ${moneyIn(o.tax, o.currency)}</small>` : ''}${o.recommendedSellingRate ? `<small>Prix de vente minimum conseillé : ${moneyIn(o.recommendedSellingRate, o.currency)}</small>` : ''}</div>
     <details><summary>Annulation et détails</summary>${tboRules(o)}${o.promotions?.length ? `<p>Promotions : ${o.promotions.map(esc).join(' · ')}</p>` : ''}${o.withTransfers ? '<p>Transferts inclus.</p>' : ''}<p>Aucune équivalence de chambre avec Halalbooking n’est présumée.</p></details></article>`;
 }
-function renderTbo() {
-  const box = $('#tbo-offers');
-  if (!tbo) { box.innerHTML = '<div class="empty">Lancez une recherche.</div>'; return; }
-  if (tbo.loading) { box.innerHTML = '<div class="empty">Recherche TBO en cours…</div>'; return; }
-  if (tbo.error) { box.innerHTML = `<div class="empty">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.')}</div>`; return; }
-  if (tbo.status === 'not_mapped') { box.innerHTML = '<div class="empty">Cet hôtel n’est pas encore associé à un code TBO. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>'; return; }
-  const f = filters();
-  const items = tbo.offers.filter(o => (!f.refund || tboCancellationState(o) === f.refund) && (f.budget === '' || f.budget == null || (typeof o.price === 'number' && o.price <= Number(f.budget))))
-    .sort((a, b) => (f.sort === 'desc' ? -1 : 1) * ((a.price ?? Infinity) - (b.price ?? Infinity)));
-  if (!tbo.offers.length) { box.innerHTML = '<div class="empty">TBO n’a retourné aucune disponibilité pour ces critères.</div>'; return; }
-  box.innerHTML = items.length ? items.map(tboCard).join('') : '<div class="empty">Aucune offre TBO ne correspond à ces filtres.</div>';
-}
-function renderSummary() {
-  const box = $('#provider-summary');
-  const parts = [];
-  if (snapshot?.offers?.length) {
-    const perRoom = snapshot.criteria.rooms.map((_, i) => snapshot.offers.filter(o => (o.roomIndex ?? 0) === i && typeof o.netPrice === 'number').map(o => o.netPrice));
-    if (perRoom.every(l => l.length)) parts.push(`<div>Halalbooking · net agence dès<strong>${money(perRoom.reduce((s, l) => s + Math.min(...l), 0))}</strong>offre la moins chère de chaque chambre, EUR</div>`);
+
+// ---- Cartouches fournisseurs ----
+const PROVIDERS = [
+  { id: 'halalbooking', name: 'Halalbooking', letter: 'H' },
+  { id: 'tbo', name: 'TBO', letter: 'T' },
+  { id: 'ratehawk', name: 'RateHawk', letter: 'R' },
+  { id: 'bedsonline', name: 'Bedsonline', letter: 'B' },
+];
+let panels = {};
+const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
+
+function hbCondition(p) {
+  if (p.state === 'free') {
+    const until = p.pick.map(o => (o.cancellation ?? []).find(r => r.penalty === 0 && r.until)?.until).filter(Boolean).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+    return `<p class="condition">✓ Sans frais avant le ${esc(cutoffLabel(until))}</p>`;
   }
-  if (tbo?.offers?.length) {
-    const cheapest = tbo.offers.filter(o => typeof o.price === 'number').sort((a, b) => a.price - b.price)[0];
-    if (cheapest) parts.push(`<div>TBO · montant dès<strong>${moneyIn(cheapest.price, cheapest.currency)}</strong>toutes chambres, ${esc(cheapest.currency ?? 'devise inconnue')} · nature nette à confirmer</div>`);
-  }
-  box.hidden = !parts.length;
-  box.innerHTML = parts.join('') + (parts.length > 1 ? '<div>Comparaison indicative : pensions, chambres, conditions et devises non harmonisées. Aucun meilleur prix n’est désigné.</div>' : '');
+  return `<p class="condition warn">${esc(labels[p.state])}</p>`;
 }
+function tboCondition(o) {
+  if (o.state === 'free') {
+    const first = (o.cancelPolicies ?? []).filter(r => r.charge > 0).sort((a, b) => parseTboDate(a.from) - parseTboDate(b.from))[0];
+    return `<p class="condition">✓ Sans frais avant le ${esc(first?.from ?? '?')} <span class="tbo-warn">(fuseau non précisé)</span></p>`;
+  }
+  return `<p class="condition warn">${esc(labels[o.state])}</p>`;
+}
+const mealLine = (label, code) => `<p>♧ ${esc(label ?? (code ? MEAL_LABELS[code] : 'Pension non renseignée'))}</p>`;
+
+function panelBody(id) {
+  const nRooms = rooms.length;
+  if (id === 'ratehawk') return { top: 'NON CONNECTÉ', off: true, html: '<div class="state">Accès API en attente. Aucun tarif n’est affiché tant que la connexion n’est pas établie.</div>' };
+  if (id === 'bedsonline') return { top: 'NON CONNECTÉ', off: true, html: '<div class="state">Accès de test Hotelbeds validé séparément ; pas encore raccordé au comparateur.</div>' };
+  if (id === 'halalbooking') {
+    if (!hbState && !snapshot) return { top: 'OFFRES RÉELLES', html: '<div class="state">Prêt à rechercher.</div>' };
+    if (hbState === 'loading') return { top: 'OFFRES RÉELLES', html: '<div class="state">Recherche en cours…</div>' };
+    if (hbState) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(ERRORS[hbState] ?? 'La recherche n’a pas abouti. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.')}</div>` };
+    const p = panels.halalbooking;
+    if (!p.received) return { top: 'OFFRES RÉELLES', html: '<div class="state">Halalbooking n’a retourné aucune offre pour ces critères.</div>' };
+    if (!p.total) return { top: 'OFFRES RÉELLES', count: p.offers.length, html: `<div class="state">${p.missingRoom != null && p.offers.length ? `Aucune offre avec net agence pour la chambre ${p.missingRoom + 1} avec ces filtres : pas de total partiel.` : 'Aucune offre ne correspond à ces filtres.'}</div>` };
+    return { top: 'OFFRES RÉELLES', count: p.offers.length, html: `<div class="price">${money(p.total).replace('€', '<small>€</small>')}</div>
+      <div class="price-label">Net agence · total séjour · ${plural(nRooms, 'chambre')}</div>${p.publicTotal ? `<div class="secondary-amount">Prix public ${money(p.publicTotal)}${p.netConfirmed ? '' : ' · net estimé'}</div>` : ''}
+      <div class="room-info"><strong>${p.pick.map((o, i) => (nRooms > 1 ? `Ch. ${i + 1} : ` : '') + esc(o.room ?? 'Chambre non renseignée')).join('<br>')}</strong>
+      ${mealLine(new Set(p.pick.map(o => o.meal)).size === 1 ? p.pick[0].meal : 'Pensions différentes selon la chambre', p.mealCode)}${hbCondition(p)}<p>Net fourni par Halalbooking · hors frais payables sur place</p></div>` };
+  }
+  // TBO
+  if (!tbo) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Prêt à rechercher.</div>' };
+  if (tbo.loading) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Recherche en cours…</div>' };
+  if (tbo.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
+  if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Hôtel pas encore associé à un code TBO. Un administrateur peut le faire dans Administration › Correspondance des hôtels.</div>' };
+  if (tbo.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">TBO renvoie des tarifs en ${esc(tbo.currency)} (devise du compte TBO). L’euro est imposé : ${plural(tbo.hidden ?? 0, 'offre')} masquée(s), sans conversion. Demandez à TBO de configurer votre compte en EUR.</div>` };
+  const p = panels.tbo;
+  if (!p.received) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">TBO n’a retourné aucune disponibilité pour ces critères.</div>' };
+  if (!p.pick) return { top: 'STAGING · DONNÉES DE TEST', count: 0, html: '<div class="state">Aucune offre ne correspond à ces filtres.</div>' };
+  const o = p.pick[0], atProperty = o.supplementsAtProperty ?? [];
+  return { top: 'STAGING · DONNÉES DE TEST', count: p.offers.length, html: `<div class="price">${money(p.total).replace('€', '<small>€</small>')}</div>
+    <div class="price-label">Montant TBO · total séjour · ${plural(nRooms, 'chambre')}</div><div class="secondary-amount">Nature nette à confirmer avec TBO</div>
+    <div class="room-info"><strong>${o.roomNames.length ? o.roomNames.map((n, i) => (o.roomNames.length > 1 ? `Ch. ${i + 1} : ` : '') + esc(n)).join('<br>') : 'Chambre non renseignée'}</strong>
+    ${mealLine(o.meal, o.mealCode)}${tboCondition(o)}<p>${typeof o.tax === 'number' ? `Dont taxes ${money(o.tax)}` : 'Taxes non détaillées'}${atProperty.length ? ` · <span class="tbo-warn">à payer sur place : ${atProperty.map(x => `${esc(x.description ?? 'supplément')} ${moneyIn(x.price, x.currency)}`).join(', ')}</span>` : ''}</p></div>` };
+}
+
 function render() {
-  renderTbo(); renderSummary();
-  if (!snapshot) return;
-  const items = filterOffers(snapshot.offers, filters());
-  $('#result-count').textContent = `${items.length} offre(s) affichée(s) sur ${snapshot.offers.length} reçue(s)`;
-  if (!items.length) {
-    $('#live-offers').innerHTML = '<div class="empty">' + (snapshot.offers.length ? 'Aucune offre reçue ne correspond à ces filtres. Effacez les filtres pour retrouver la liste.' : 'Halalbooking n’a retourné aucune offre pour ces critères.') + '</div>';
-    return;
-  }
-  const many = snapshot.criteria.rooms.length > 1;
-  $('#live-offers').innerHTML = snapshot.criteria.rooms.map((r, i) => {
-    const list = items.filter(o => (o.roomIndex ?? 0) === i);
-    const head = many ? `<h3 class="room-group">Chambre ${i + 1} · ${esc(roomLabel(r))}</h3>` : '';
-    return head + (list.length ? list.map(card).join('') : `<div class="empty">Aucune offre affichée pour la chambre ${i + 1}${snapshot.offers.some(o => (o.roomIndex ?? 0) === i) ? ' avec ces filtres' : ' : Halalbooking n’a rien proposé pour cette occupation'}.</div>`);
+  const f = filters();
+  panels = { halalbooking: snapshot ? hbPanel(snapshot, f) : null, tbo: tbo?.offers ? tboPanel(tbo, f) : null };
+  const cmp = comparePanels([panels.halalbooking, panels.tbo]);
+  const insight = $('#result-insight');
+  if (cmp.lowest) {
+    const name = PROVIDERS.find(p => p.id === cmp.lowest.provider).name;
+    insight.hidden = false; insight.className = 'insight' + (cmp.comparable ? '' : ' warn');
+    insight.innerHTML = `<span>↘</span><span><strong>${money(cmp.lowest.total)}</strong> · ${name} · ${cmp.comparable ? 'Prix le plus bas à pension, chambre et annulation équivalentes.' : `Prix affiché le plus bas, à vérifier : ${esc(cmp.reasons.join(', '))}.`}</span>`;
+  } else insight.hidden = true;
+  $('#provider-grid').innerHTML = PROVIDERS.map(prov => {
+    const b = panelBody(prov.id);
+    const best = cmp.lowest?.provider === prov.id;
+    const top = best ? (cmp.comparable ? 'PRIX LE PLUS BAS · COMPARABLE' : 'PRIX AFFICHÉ LE PLUS BAS · À VÉRIFIER') : b.top;
+    return `<article class="provider${best ? ' best' : ''}${b.off ? ' off' : ''}"><div class="provider-top">${esc(top)}</div><div class="provider-main">
+      <div class="provider-brand"><span class="provider-letter">${prov.letter}</span>${prov.name}</div>
+      ${b.count != null ? `<p class="subtle">${plural(b.count, 'offre')} correspondante${b.count > 1 ? 's' : ''}</p>` : ''}${b.html}</div>
+      <div class="provider-bottom"><button type="button" data-offers="${prov.id}" ${b.count ? '' : 'disabled'}>Voir les chambres et conditions <span>↗</span></button></div></article>`;
   }).join('');
+  $$('[data-offers]').forEach(btn => btn.onclick = () => openOffers(btn.dataset.offers));
 }
+
+function openOffers(id) {
+  const p = panels[id];
+  if (!p?.offers?.length) return;
+  const hotel = $('#results-title').textContent;
+  $('#offers-title').innerHTML = `<h2>${id === 'tbo' ? 'TBO' : 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
+  if (id === 'tbo') $('#offers-body').innerHTML = p.offers.map(tboCard).join('');
+  else {
+    const many = rooms.length > 1 || (snapshot?.criteria?.rooms?.length ?? 1) > 1;
+    $('#offers-body').innerHTML = snapshot.criteria.rooms.map((r, i) => {
+      const list = p.offers.filter(o => (o.roomIndex ?? 0) === i);
+      return (many ? `<h3 class="room-group">Chambre ${i + 1} · ${esc(roomLabel(r))}</h3>` : '') + (list.length ? list.map(card).join('') : '<div class="empty">Aucune offre avec ces filtres.</div>');
+    }).join('');
+  }
+  $('#offers-modal').showModal();
+}
+$('#close-offers').onclick = () => $('#offers-modal').close();
+
 function clearFilters() { for (const id of ['meal', 'refund', 'room', 'budget']) $('#live-' + id).value = ''; $('#live-sort').value = 'asc'; render(); }
 function markPending() {
   const n = nightsBetween($('#live-in').value, $('#live-out').value);
@@ -187,43 +245,33 @@ $('#live-search').onsubmit = async e => {
   const err = roomsProblem(rooms);
   if (err) { $('#live-error').textContent = err; return; }
   loading = true;
-  const q = criteria();
-  snapshot = null;
-  $('#live-offers').innerHTML = ''; $('#result-count').textContent = ''; $('#criteria').textContent = '';
-  $('#results-title').textContent = 'Recherche Halalbooking'; $('#pending').hidden = true; $('#live-error').textContent = '';
-  $('#live-status').textContent = 'Recherche en cours…'; $('#hb-status').textContent = 'Recherche en cours'; $('#live-submit').disabled = true;
-  const nationality = $('#live-nationality').value;
-  tbo = { loading: true }; renderTbo(); $('#tbo-status').textContent = 'Recherche en cours';
-  const tboRun = fetch('/api/tbo/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...q, nationality }) })
-    .then(async r => { const d = await r.json().catch(() => ({})); tbo = r.ok ? d : { error: d.detail || d.error || 'SUPPLIER_ERROR' }; })
-    .catch(() => { tbo = { error: 'NETWORK' }; })
-    .finally(() => {
-      $('#tbo-status').textContent = tbo.error ? 'Erreur de recherche' : tbo.status === 'not_mapped' ? 'Hôtel non associé' : `${tbo.offers.length} offre(s) reçue(s) · staging`;
-      renderTbo(); renderSummary();
-    });
-  try {
-    const r = await fetch('/api/halalbooking/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || data.error || 'SUPPLIER_ERROR');
-    snapshot = data;
-    $('#results-title').textContent = data.offers[0]?.hotel ?? 'Résultats Halalbooking';
-    const n = nightsBetween(q.checkin, q.checkout);
-    $('#criteria').textContent = `${q.checkin} → ${q.checkout} · ${n} nuit${n > 1 ? 's' : ''} · ${q.rooms.map((x, i) => `ch. ${i + 1} : ${roomLabel(x)}`).join(' ; ')} · pays ${q.country}`;
-    $('#live-status').textContent = `Relevé du ${new Date(data.observedAt).toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix à reconfirmer chez le fournisseur.`;
-    $('#hb-status').textContent = `${data.offers.length} offre(s) reçue(s)`;
-    $('#live-meal').innerHTML = '<option value="">Toutes les pensions</option>' + [...new Set(data.offers.map(o => o.meal).filter(Boolean))].map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
-    $('#live-room').innerHTML = '<option value="">Toutes les chambres</option>' + [...new Map(data.offers.filter(o => o.roomId != null).map(o => [String(o.roomId), o.room])).entries()].map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
-    clearFilters();
-    markPending();
-  } catch (err) {
-    $('#live-error').textContent = ERRORS[err.message] ?? 'La recherche n’a pas abouti. Aucun tarif fictif ne remplace la réponse.';
-    $('#hb-status').textContent = 'Erreur de recherche';
-    $('#live-status').textContent = 'Aucun résultat exploitable pour cette recherche.';
-  } finally {
-    renderSummary();
-    await tboRun;
-    loading = false; $('#live-submit').disabled = false;
-  }
+  const q = criteria(), nationality = $('#live-nationality').value;
+  snapshot = null; hbState = 'loading'; tbo = { loading: true };
+  $('#pending').hidden = true; $('#live-error').textContent = '';
+  $('#live-status').textContent = 'Recherche en cours auprès des fournisseurs connectés…'; $('#live-submit').disabled = true;
+  const n = nightsBetween(q.checkin, q.checkout);
+  $('#results-title').textContent = $('#live-hotel').selectedOptions[0].textContent.split(' · ')[0];
+  $('#criteria').textContent = `${q.checkin} → ${q.checkout} · ${n} nuit${n > 1 ? 's' : ''} · ${q.rooms.map((x, i) => `ch. ${i + 1} : ${roomLabel(x)}`).join(' ; ')} · pays ${q.country} · nationalité ${nationality}`;
+  render();
+  const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async r => { const d = await r.json().catch(() => ({})); return r.ok ? { ok: true, d } : { ok: false, error: d.detail || d.error || 'SUPPLIER_ERROR' }; })
+    .catch(() => ({ ok: false, error: 'NETWORK' }));
+  const tboRun = post('/api/tbo/search', { ...q, nationality }).then(r => { tbo = r.ok ? r.d : { error: r.error }; render(); });
+  const hbRun = post('/api/halalbooking/search', q).then(r => {
+    if (r.ok) {
+      snapshot = r.d; hbState = null;
+      $('#live-room').innerHTML = '<option value="">Toutes les chambres</option>' + [...new Map(r.d.offers.filter(o => o.roomId != null).map(o => [String(o.roomId), o.room])).entries()].map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+    } else {
+      hbState = r.error;
+      if (CRITERIA_CODES.includes(r.error)) $('#live-error').textContent = ERRORS[r.error];
+    }
+    render();
+  });
+  await Promise.all([hbRun, tboRun]);
+  $('#live-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix à reconfirmer chez le fournisseur.`;
+  clearFilters(); markPending();
+  loading = false; $('#live-submit').disabled = false;
 };
-guestSummary(); markPending();
-setInterval(() => { if (snapshot) render(); }, 60000);
+const CRITERIA_CODES = ['CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
+guestSummary(); markPending(); render();
+setInterval(() => { if (snapshot || tbo?.offers) render(); }, 60000);

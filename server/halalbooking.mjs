@@ -1,3 +1,4 @@
+import { mealCodeFromText } from '../public/meal-core.mjs';
 // Codes d'erreur de critères exposables au navigateur (aucune donnée fournisseur).
 export const CRITERIA_ERRORS = ['CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12'];
 const fail = code => { throw new Error(code); };
@@ -71,7 +72,7 @@ export async function searchHalalbooking(input, credentials, fetcher = fetch) {
       roomId:room.room?.id,room:room.room?.name,description:room.room?.long_description??null,confirmation:room.confirmation??null,
       quantity:rate.quantity??null,price:rate.price??null,currency:data.currency,priceBasis:'public_price_total_group',
       commissionPercent:rate.affiliate_commission_percentage??null,...agencyNet(rate),
-      meal:plan.meal_plan_name??null,inclusions:Array.isArray(plan.inclusions)?plan.inclusions.filter(x=>typeof x==='string'):[],cancellation:plan.cancellation_policy??null});
+      meal:plan.meal_plan_name??null,mealCode:mealCodeFromText(plan.meal_plan_name),inclusions:Array.isArray(plan.inclusions)?plan.inclusions.filter(x=>typeof x==='string'):[],cancellation:plan.cancellation_policy??null});
   }});
   return {provider:'Halalbooking',observedAt:new Date().toISOString(),criteria:q,scope:'one_hotel_rooms_children',offers,notice:'Prix de recherche, à reconfirmer (cache fournisseur jusqu’à 5 min ; commission susceptible d’évoluer à la vérification). Net agence fourni par Halalbooking, hors frais payables sur place. Aucun rapprochement automatique de chambres.'};
 }

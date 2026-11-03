@@ -72,3 +72,11 @@ test('données statiques : villes et hôtels', async () => {
   await assert.rejects(tboCities('Turquie', cfg, async () => null), /CRITERIA_INVALID/);
   await assert.rejects(tboHotels('12;drop', cfg, async () => null), /CRITERIA_INVALID/);
 });
+
+test('euro imposé : offres TBO en autre devise masquées, jamais converties', async () => {
+  const usd = structuredClone(sample); usd.HotelResult[0].Currency = 'USD';
+  const r = await searchTbo(q, '1279415', 'FR', cfg, async () => Response.json(usd));
+  assert.deepEqual([r.status, r.currency, r.offers.length, r.hidden], ['currency_not_eur', 'USD', 0, 1]);
+  const eur = await searchTbo(q, '1279415', 'FR', cfg, async () => Response.json(sample));
+  assert.equal(eur.offers[0].mealCode, 'BB');
+});
