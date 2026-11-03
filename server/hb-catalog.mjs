@@ -52,6 +52,13 @@ export function createCatalog(db) {
         ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_norm=excluded.name_norm,stars=COALESCE(excluded.stars,hb_places.stars),city=COALESCE(excluded.city,hb_places.city),city_norm=CASE WHEN excluded.city IS NULL THEN hb_places.city_norm ELSE excluded.city_norm END,region=COALESCE(excluded.region,hb_places.region),subregion=COALESCE(excluded.subregion,hb_places.subregion),country=COALESCE(excluded.country,hb_places.country),address=COALESCE(excluded.address,hb_places.address),lat=COALESCE(excluded.lat,hb_places.lat),lng=COALESCE(excluded.lng,hb_places.lng),holiday_type=COALESCE(excluded.holiday_type,hb_places.holiday_type),photo=COALESCE(excluded.photo,hb_places.photo),updated_at=excluded.updated_at`);
       await db.batch(rows.map(r => st.bind(r.id, r.name, r.nameNorm, r.stars, r.city, r.cityNorm, r.region, r.subregion, r.country, r.address, r.lat, r.lng, r.holidayType, r.photo, now)));
     },
+    /** Ajout seulement (réponses de recherche en français) : ne remplace jamais le contenu anglais du catalogue. */
+    async insertMissing(rows, now = Date.now()) {
+      await ensure();
+      if (!rows.length) return;
+      const st = db.prepare('INSERT OR IGNORE INTO hb_places (id,name,name_norm,stars,city,city_norm,region,subregion,country,address,lat,lng,holiday_type,photo,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+      await db.batch(rows.map(r => st.bind(r.id, r.name, r.nameNorm, r.stars, r.city, r.cityNorm, r.region, r.subregion, r.country, r.address, r.lat, r.lng, r.holidayType, r.photo, 0)));
+    },
     async state() { await ensure(); const rs = (await db.prepare('SELECT k, v FROM hb_catalog_state').all()).results ?? []; const count = (await db.prepare('SELECT COUNT(*) AS n FROM hb_places').first()).n; return { ...Object.fromEntries(rs.map(r => [r.k, JSON.parse(r.v)])), count }; },
     async setState(k, v) { await ensure(); await db.prepare('INSERT INTO hb_catalog_state (k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v').bind(k, JSON.stringify(v)).run(); },
     async get(id) { await ensure(); return fromRow(await db.prepare('SELECT * FROM hb_places WHERE id=?').bind(id).first()); },
@@ -71,6 +78,7 @@ export function createCatalog(db) {
 export function createMemoryCatalog() {
   const rows = new Map(); const st = {};
   return {
+    async insertMissing(list) { for (const r of list) if (!rows.has(r.id)) rows.set(r.id, r); },
     async upsert(list) { for (const r of list) { const old = rows.get(r.id); rows.set(r.id, old ? { ...r, lat: r.lat ?? old.lat, lng: r.lng ?? old.lng, address: r.address ?? old.address } : r); } },
     async state() { return { ...st, count: rows.size }; },
     async setState(k, v) { st[k] = v; },

@@ -29,7 +29,7 @@ test('classement : homonymes départagés par la distance, jamais d’associatio
 
 test('pays et villes', () => {
   assert.equal(countryCode('Turkey'), 'TR'); assert.equal(countryCode('Morocco'), 'MA'); assert.equal(countryCode('United Arab Emirates'), 'AE');
-  assert.equal(countryCode('Malaysia'), 'MY'); assert.equal(countryCode('Atlantis'), null);
+  assert.equal(countryCode('Malaysia'), 'MY'); assert.equal(countryCode('Indonésie'), 'ID'); assert.equal(countryCode('Maroc'), 'MA'); assert.equal(countryCode('Atlantis'), null);
   assert.deepEqual(pickCity('Istanbul', [{ code: '2', name: 'Istanbul-Silivri' }, { code: '1', name: 'Istanbul' }]), { code: '1', name: 'Istanbul' });
   assert.equal(pickCity('Nowhere', [{ code: '1', name: 'Istanbul' }]), null);
 });

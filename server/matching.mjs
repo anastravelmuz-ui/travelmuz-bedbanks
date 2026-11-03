@@ -44,7 +44,7 @@ export function rankCandidates(source, candidates, limit = 5) {
 }
 
 // ---- Pays : nom anglais (Halalbooking) → code ISO 3166-1 alpha-2 (TBO, Hotelbeds) ----
-const ALIASES = { turkey: 'TR', turkiye: 'TR', 'united arab emirates': 'AE', uae: 'AE', 'united kingdom': 'GB', uk: 'GB', 'great britain': 'GB', 'united states': 'US', usa: 'US', 'south korea': 'KR', korea: 'KR', russia: 'RU', 'czech republic': 'CZ', 'bosnia and herzegovina': 'BA', maldives: 'MV', 'saudi arabia': 'SA' };
+const ALIASES = { turkey: 'TR', turkiye: 'TR', turquie: 'TR', 'emirats arabes unis': 'AE', 'united arab emirates': 'AE', uae: 'AE', 'united kingdom': 'GB', uk: 'GB', 'great britain': 'GB', 'united states': 'US', usa: 'US', 'south korea': 'KR', korea: 'KR', russia: 'RU', 'czech republic': 'CZ', 'bosnia and herzegovina': 'BA', maldives: 'MV', 'saudi arabia': 'SA' };
 let regionIndex = null;
 export function countryCode(name) {
   const n = normalize(name);
@@ -53,10 +53,13 @@ export function countryCode(name) {
   if (!regionIndex) {
     regionIndex = new Map();
     try {
-      const dn = new Intl.DisplayNames(['en'], { type: 'region' });
-      for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
-        const code = String.fromCharCode(a, b); const label = dn.of(code);
-        if (label && label !== code) regionIndex.set(normalize(label), code);
+      // Noms anglais et français : Halalbooking répond selon la langue de l'appel (/fr/ pour les recherches).
+      for (const lang of ['fr', 'en']) {
+        const dn = new Intl.DisplayNames([lang], { type: 'region' });
+        for (let a = 65; a <= 90; a++) for (let b = 65; b <= 90; b++) {
+          const code = String.fromCharCode(a, b); const label = dn.of(code);
+          if (label && label !== code) regionIndex.set(normalize(label), code);
+        }
       }
     } catch { /* Intl indisponible : alias seulement */ }
   }

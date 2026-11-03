@@ -70,7 +70,7 @@ const supplierError = e => { const m = e instanceof Error ? e.message : ''; retu
 // Les établissements vus en recherche enrichissent le catalogue (jamais bloquant).
 async function rememberPlaces(env, places) {
   if (!env.DB) return;
-  try { await createCatalog(env.DB).upsert(places.map(placeRow).filter(Boolean)); } catch { /* catalogue facultatif */ }
+  try { await createCatalog(env.DB).insertMissing(places.map(placeRow).filter(Boolean)); } catch { /* catalogue facultatif */ }
 }
 const hbCreds = env => ({ partner: env.HALALBOOKING_PARTNER_CODE, secret: env.HALALBOOKING_SECRET_KEY });
 
@@ -125,7 +125,8 @@ async function matchSuggest(env, user, url) {
   if (!Number.isSafeInteger(id) || id < 1 || !['tbo', 'hotelbeds'].includes(provider) || !env.DB) return json({ error: 'INVALID_CRITERIA' }, 400);
   const catalog = createCatalog(env.DB);
   let source = await catalog.get(id).catch(() => null);
-  if (!source || source.lat == null || !source.country) {
+  // Contenu anglais rechargé si coordonnées ou pays manquent / ne sont pas reconnus (ex. fiche créée depuis une recherche en français).
+  if (!source || source.lat == null || !countryCode(source.country)) {
     try { const r = await fetchContentPage(1, hbCreds(env), fetch, [id]); await catalog.upsert(r.rows); source = await catalog.get(id); } catch { /* coordonnées indisponibles : nom seul */ }
   }
   if (!source) return json({ error: 'HOTEL_UNKNOWN' }, 404);
