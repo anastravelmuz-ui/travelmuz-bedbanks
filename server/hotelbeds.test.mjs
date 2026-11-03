@@ -64,7 +64,7 @@ test('annulation Hotelbeds : échéance avec fuseau', () => {
 
 test('Content API : hôtels de la destination et photos par code chambre', async () => {
   const list = await hotelbedsHotels('IST', 1, cfg, async url => { assert.match(String(url), /destinationCode=IST/); return Response.json({ total: 3100, hotels: [{ code: 777, name: { content: 'Deluxe Golden Horn Sultanahmet' }, address: { content: 'Binbirdirek' }, city: { content: 'ISTANBUL' }, categoryCode: '4EST' }] }); });
-  assert.deepEqual(list.hotels[0], { code: '777', name: 'Deluxe Golden Horn Sultanahmet', address: 'Binbirdirek, ISTANBUL', rating: '4EST' });
+  assert.deepEqual(list.hotels[0], { code: '777', name: 'Deluxe Golden Horn Sultanahmet', address: 'Binbirdirek, ISTANBUL', rating: '4EST', lat: null, lng: null });
   const d = await hotelbedsDetails('777', cfg, async () => Response.json({ hotel: { code: 777, images: [{ path: '00/0007/a.jpg', roomCode: 'DBL.ST', order: 2 }, { path: '00/0007/h.jpg', order: 1 }, { path: '../../x"' }], rooms: [{ roomCode: 'DBL.ST', description: 'DOUBLE STANDARD', maxPax: 3 }] } }));
   assert.deepEqual(d.roomImages['DBL.ST'], ['https://photos.hotelbeds.com/giata/bigger/00/0007/a.jpg']);
   assert.equal(d.hotelImages.length, 1);

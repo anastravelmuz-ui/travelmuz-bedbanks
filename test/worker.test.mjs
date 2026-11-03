@@ -120,3 +120,30 @@ test('Worker : correspondance hôtels (admin) et recherche TBO', async t => {
   const cities = await (await route(call('/api/admin/tbo/cities?country=TR&q=ist', { cookie: adminCookie, accept: 'application/json' }), e2)).json();
   assert.deepEqual(cities.cities, [{ code: '1', name: 'Istanbul' }]);
 });
+
+test('Worker : suggestions de correspondance (admin), sans association automatique', async t => {
+  const { setStoreFactory } = await import('../server/auth-store-d1.mjs');
+  const { createMemoryMapStore } = await import('../server/hotel-map.mjs');
+  const { createMemoryCatalog, placeRow } = await import('../server/hb-catalog.mjs');
+  const { createMemoryDetailsCache } = await import('../server/tbo-cache.mjs');
+  const store = createMemoryStore(); const maps = createMemoryMapStore(); const cat = createMemoryCatalog();
+  await cat.upsert([placeRow({ id: 4, name: 'Deluxe Golden Horn Sultanahmet', stars: 4, location: { city: 'Istanbul', country: 'Turkey', latitude: '41.0071', longitude: '28.9746' } })]);
+  setStoreFactory(db => db.__memory);
+  const realFetch = globalThis.fetch; let calls = 0;
+  t.after(() => { setStoreFactory(null); globalThis.fetch = realFetch; });
+  const e = env({ DB: { __memory: store, __mapMemory: maps, __catalogMemory: cat, __detailsMemory: createMemoryDetailsCache() }, TBO_USERNAME: 'u', TBO_PASSWORD: 'p', TBO_BASE_URL: 'https://tbo.example.test/api' });
+  const boot = await route(call('/api/auth/bootstrap', { method: 'POST', body: { code: CODE } }), e);
+  await route(call('/api/auth/set-password', { method: 'POST', body: { token: (await boot.json()).link.split('#t=')[1], password: PWD } }), e);
+  const cookie = (await route(call('/api/auth/login', { method: 'POST', body: { email: 'anas@travelmuz.fr', password: PWD } }), e)).headers.get('set-cookie').split(';')[0];
+  globalThis.fetch = async u => { calls++; const p = new URL(u).pathname;
+    if (p.endsWith('/CityList')) return Response.json({ Status: { Code: 200 }, CityList: [{ Code: '122728', Name: 'Istanbul-Silivri' }, { Code: '122727', Name: 'Istanbul' }] });
+    return Response.json({ Status: { Code: 200 }, Hotels: [{ HotelCode: '1050432', HotelName: 'Golden Horn Hotel - Special Class', Latitude: '41.0145', Longitude: '28.9760' }, { HotelCode: '1235939', HotelName: 'Deluxe Golden Horn Sultanahmet Hotel', Latitude: '41.0072', Longitude: '28.9748', Address: 'Binbirdirek' }] }); };
+  const r = await route(call('/api/admin/match?hotel=4&provider=tbo', { cookie, accept: 'application/json' }), e);
+  const d = await r.json();
+  assert.equal(r.status, 200); assert.equal(d.city.code, '122727');
+  assert.deepEqual([d.candidates[0].code, d.candidates[0].strong], ['1235939', true]);
+  assert.equal(await maps.get(4, 'tbo'), null); // rien n'est associé sans validation
+  const before = calls;
+  await route(call('/api/admin/match?hotel=4&provider=tbo', { cookie, accept: 'application/json' }), e);
+  assert.equal(calls, before); // listes en cache
+});

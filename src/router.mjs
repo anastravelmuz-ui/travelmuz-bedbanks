@@ -4,10 +4,11 @@ import { createAuth } from '../server/auth-core.mjs';
 import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, searchHalalbookingDestination, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
-import { createCatalog, placeRow, syncBatch } from '../server/hb-catalog.mjs';
+import { createCatalog, placeRow, syncBatch, fetchContentPage } from '../server/hb-catalog.mjs';
+import { rankCandidates, countryCode, pickCity } from '../server/matching.mjs';
 import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
 import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
-import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, hotelbedsRateComments, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
+import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, hotelbedsRateComments, hotelbedsDestinations, hotelbedsAllHotels, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
 
 // Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
 const ALLOW_NON_EUR = true;
@@ -103,6 +104,50 @@ async function placeInfo(env, user, url) {
   if (!Number.isSafeInteger(id) || id < 1 || !env.DB) return json({ error: 'NOT_FOUND' }, 404);
   const p = await createCatalog(env.DB).get(id).catch(() => null);
   return p ? json({ place: p }) : json({ error: 'NOT_FOUND' }, 404);
+}
+
+// Cache 15 jours des listes statiques fournisseurs ; contrairement à cachedDetails, l'erreur est remontée.
+async function cachedList(env, key, load) {
+  const cache = env.DB ? createDetailsCache(env.DB) : null;
+  const hit = cache ? await cache.get(key).catch(() => null) : null;
+  if (hit && Date.now() - hit.fetchedAt < 15 * 24 * 3600e3) return { value: hit.value, cached: true };
+  const value = await load();
+  if (cache) await cache.set(key, value).catch(() => {});
+  return { value, cached: false };
+}
+const compact = h => ({ code: h.code, name: h.name, address: typeof h.address === 'string' ? h.address.slice(0, 120) : null, rating: h.rating ?? null, lat: h.lat ?? (h.latitude != null ? Number(h.latitude) : null), lng: h.lng ?? (h.longitude != null ? Number(h.longitude) : null) });
+
+/** Suggestions de correspondance (administrateurs) : nom + distance GPS, jamais d'association automatique. */
+async function matchSuggest(env, user, url) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);
+  const id = Number(url.searchParams.get('hotel')), provider = url.searchParams.get('provider');
+  if (!Number.isSafeInteger(id) || id < 1 || !['tbo', 'hotelbeds'].includes(provider) || !env.DB) return json({ error: 'INVALID_CRITERIA' }, 400);
+  const catalog = createCatalog(env.DB);
+  let source = await catalog.get(id).catch(() => null);
+  if (!source || source.lat == null || !source.country) {
+    try { const r = await fetchContentPage(1, hbCreds(env), fetch, [id]); await catalog.upsert(r.rows); source = await catalog.get(id); } catch { /* coordonnées indisponibles : nom seul */ }
+  }
+  if (!source) return json({ error: 'HOTEL_UNKNOWN' }, 404);
+  const cc = countryCode(source.country);
+  if (!cc) return json({ error: 'COUNTRY_UNKNOWN', source }, 422);
+  try {
+    let city, list, cached;
+    if (provider === 'tbo') {
+      const cfg = tboConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+      const cities = (await cachedList(env, `tbo-cities:${cc}`, () => tboCities(cc, cfg))).value;
+      city = pickCity(source.city, cities);
+      if (!city) return json({ error: 'CITY_NOT_FOUND', source, country: cc }, 404);
+      ({ value: list, cached } = await cachedList(env, `tbo-hotels:${city.code}`, async () => (await tboHotels(city.code, cfg)).map(compact)));
+    } else {
+      const cfg = hotelbedsConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+      const dests = (await cachedList(env, `hbeds-dest:${cc}`, () => hotelbedsDestinations(cc, cfg))).value;
+      city = pickCity(source.city, dests);
+      if (!city) return json({ error: 'CITY_NOT_FOUND', source, country: cc }, 404);
+      ({ value: list, cached } = await cachedList(env, `hbeds-hotels:${city.code}`, async () => (await hotelbedsAllHotels(city.code, cfg)).map(compact)));
+    }
+    return json({ source: { id: source.id, name: source.name, city: source.city, country: source.country, address: source.address, lat: source.lat, lng: source.lng }, city, scanned: list.length, cached, candidates: rankCandidates(source, list) });
+  } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 
 async function catalogAdmin(request, env, user, path) {
@@ -252,6 +297,7 @@ export async function route(request, env) {
   if (path === '/api/places/suggest') return secure(await placesSuggest(env, user, url), { noStore: true });
   if (path === '/api/places/info') return secure(await placeInfo(env, user, url), { noStore: true });
   if (path.startsWith('/api/admin/catalog/')) return secure(await catalogAdmin(request, env, user, path), { noStore: true });
+  if (path === '/api/admin/match') return secure(await matchSuggest(env, user, url), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/ratecomments') return secure(await bedsonlineRateComments(request, env, user, url), { noStore: true });

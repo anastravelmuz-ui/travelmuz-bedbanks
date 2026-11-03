@@ -18,9 +18,10 @@ export function placeRow(p) {
   };
 }
 
-export async function fetchContentPage(page, credentials, fetcher = fetch) {
+export async function fetchContentPage(page, credentials, fetcher = fetch, placeIds = null) {
   if (!credentials?.partner || !credentials?.secret) throw new Error('CONFIGURATION_MISSING');
   const url = new URL(API); url.searchParams.set('page', String(page));
+  for (const id of placeIds ?? []) url.searchParams.append('place_ids[]', String(id));
   let r;
   try { r = await fetcher(url, { headers: { Accept: 'application/json', Authorization: 'Basic ' + btoa(credentials.partner + ':' + credentials.secret) }, redirect: 'manual', signal: AbortSignal.timeout(25000) }); }
   catch { throw new Error('SUPPLIER_UNREACHABLE'); }
@@ -48,7 +49,7 @@ export function createCatalog(db) {
       await ensure();
       if (!rows.length) return;
       const st = db.prepare(`INSERT INTO hb_places (id,name,name_norm,stars,city,city_norm,region,subregion,country,address,lat,lng,holiday_type,photo,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_norm=excluded.name_norm,stars=excluded.stars,city=excluded.city,city_norm=excluded.city_norm,region=excluded.region,subregion=excluded.subregion,country=excluded.country,address=excluded.address,lat=excluded.lat,lng=excluded.lng,holiday_type=excluded.holiday_type,photo=excluded.photo,updated_at=excluded.updated_at`);
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_norm=excluded.name_norm,stars=COALESCE(excluded.stars,hb_places.stars),city=COALESCE(excluded.city,hb_places.city),city_norm=CASE WHEN excluded.city IS NULL THEN hb_places.city_norm ELSE excluded.city_norm END,region=COALESCE(excluded.region,hb_places.region),subregion=COALESCE(excluded.subregion,hb_places.subregion),country=COALESCE(excluded.country,hb_places.country),address=COALESCE(excluded.address,hb_places.address),lat=COALESCE(excluded.lat,hb_places.lat),lng=COALESCE(excluded.lng,hb_places.lng),holiday_type=COALESCE(excluded.holiday_type,hb_places.holiday_type),photo=COALESCE(excluded.photo,hb_places.photo),updated_at=excluded.updated_at`);
       await db.batch(rows.map(r => st.bind(r.id, r.name, r.nameNorm, r.stars, r.city, r.cityNorm, r.region, r.subregion, r.country, r.address, r.lat, r.lng, r.holidayType, r.photo, now)));
     },
     async state() { await ensure(); const rs = (await db.prepare('SELECT k, v FROM hb_catalog_state').all()).results ?? []; const count = (await db.prepare('SELECT COUNT(*) AS n FROM hb_places').first()).n; return { ...Object.fromEntries(rs.map(r => [r.k, JSON.parse(r.v)])), count }; },
@@ -70,7 +71,7 @@ export function createCatalog(db) {
 export function createMemoryCatalog() {
   const rows = new Map(); const st = {};
   return {
-    async upsert(list) { for (const r of list) rows.set(r.id, r); },
+    async upsert(list) { for (const r of list) { const old = rows.get(r.id); rows.set(r.id, old ? { ...r, lat: r.lat ?? old.lat, lng: r.lng ?? old.lng, address: r.address ?? old.address } : r); } },
     async state() { return { ...st, count: rows.size }; },
     async setState(k, v) { st[k] = v; },
     async get(id) { const r = rows.get(id); return r ? { id: r.id, name: r.name, stars: r.stars, city: r.city, region: r.region, country: r.country, address: r.address, lat: r.lat, lng: r.lng, holidayType: r.holidayType, photo: r.photo } : null; },

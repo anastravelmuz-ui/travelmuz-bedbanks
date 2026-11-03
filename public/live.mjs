@@ -193,7 +193,7 @@ function panelBody(id) {
   if (!tbo) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Prêt à rechercher.</div>' };
   if (tbo.loading) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Recherche en cours…</div>' };
   if (tbo.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
-  if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: `<div class="state">Hôtel pas encore associé à un code TBO. ${mapLink()}</div>` };
+  if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: `<div class="state">Hôtel pas encore associé à un code TBO. ${mapLink('tbo')}</div>` };
   if (tbo.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">TBO renvoie des tarifs en ${esc(tbo.currency)} (devise du compte TBO). L’euro est imposé : ${plural(tbo.hidden ?? 0, 'offre')} masquée(s), sans conversion. Demandez à TBO de configurer votre compte en EUR.</div>` };
   const p = panels.tbo;
   if (!p.received) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">TBO n’a retourné aucune disponibilité pour ces critères.</div>' };
@@ -207,7 +207,50 @@ function panelBody(id) {
 }
 
 
-const mapLink = () => `<a href="/admin.html?hotel=${encodeURIComponent(place.id)}&name=${encodeURIComponent(place.name)}&city=${encodeURIComponent(place.city ?? '')}#place-card">Associer cet hôtel</a> (administrateurs).`;
+let isAdmin = false;
+fetch('/api/auth/me').then(r => r.json()).then(d => { isAdmin = d.user?.role === 'admin'; render(); }).catch(() => {});
+const mapLink = (provider) => isAdmin
+  ? `<button type="button" class="btn-match" data-match="${provider}">Trouver l’hôtel ${provider === 'tbo' ? 'TBO' : 'Bedsonline'} →</button>`
+  : 'Un administrateur peut l’associer.';
+
+// ---- Suggestions de correspondance (administrateurs) : nom + GPS, validation en un clic ----
+async function openMatch(provider) {
+  const label = provider === 'tbo' ? 'TBO' : 'Bedsonline';
+  $('#offers-title').innerHTML = `<h2>Associer à ${label}</h2><p>${esc(place.name)} · suggestions par nom et position GPS · aucune association sans votre validation</p>`;
+  $('#offers-body').innerHTML = '<div class="empty">Recherche des correspondances… (la première fois pour une ville, le catalogue fournisseur est téléchargé puis gardé 15 jours)</div>';
+  $('#offers-modal').showModal();
+  const r = await fetch(`/api/admin/match?hotel=${encodeURIComponent(place.id)}&provider=${provider === 'tbo' ? 'tbo' : 'hotelbeds'}`);
+  const d = await r.json().catch(() => ({}));
+  const why = { CITY_NOT_FOUND: `Ville « ${esc(d.source?.city ?? '?')} » introuvable chez ${label} : utilisez l’association manuelle dans l’Administration.`, COUNTRY_UNKNOWN: 'Pays non reconnu : association manuelle nécessaire.', QUOTA_EXCEEDED: 'Quota Bedsonline atteint pour aujourd’hui.', CONFIGURATION_MISSING: `Accès ${label} non configurés.` };
+  if (!r.ok) { $('#offers-body').innerHTML = `<div class="empty">${why[d.error] ?? 'Suggestions indisponibles pour le moment.'} <a href="/admin.html?hotel=${encodeURIComponent(place.id)}#place-card">Association manuelle</a></div>`; return; }
+  const src = d.source;
+  const fmtD = m => (m == null ? 'distance inconnue' : m < 1000 ? `à ${m} m` : `à ${(m / 1000).toFixed(1).replace('.', ',')} km`);
+  $('#offers-body').innerHTML = `<p class="subtle">Halalbooking : ${esc(src.name)} · ${esc(src.address ?? src.city ?? '')}${src.lat == null ? ' · coordonnées GPS non disponibles (nom seul)' : ''}. ${d.scanned} hôtels ${label} analysés à ${esc(d.city.name)}.</p>`
+    + (d.candidates.length ? d.candidates.map(c => `<article class="live-card match-card${c.strong ? ' strong' : ''}"><div><span class="tag">${c.strong ? 'Très probable · même nom, moins de 250 m' : `Ressemblance ${Math.round(c.nameScore * 100)} %`}</span><h3>${esc(c.name ?? 'Nom non fourni')}</h3>
+      <p>${esc(c.address ?? 'Adresse non fournie')}</p><p>${esc(c.rating ?? '')} · ${fmtD(c.distanceM)} · code ${esc(c.code)}</p></div>
+      <div class="live-price"><button type="button" class="btn-compare" data-assoc="${esc(c.code)}">Associer</button></div></article>`).join('')
+      : `<div class="empty">Aucun hôtel ${label} suffisamment proche par le nom ou la position.</div>`);
+  $$('#offers-body [data-assoc]').forEach(b => b.onclick = async () => {
+    const c = d.candidates.find(x => x.code === b.dataset.assoc);
+    if (!confirm(`Associer « ${place.name} » au code ${label} ${c.code} :\n${c.name}\n${c.address ?? ''}\n${fmtD(c.distanceM)}\n\nConfirmez-vous qu’il s’agit du même établissement ?`)) return;
+    b.disabled = true;
+    const x = await fetch('/api/admin/mappings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', hbPlaceId: place.id, provider: provider === 'tbo' ? 'tbo' : 'hotelbeds', code: c.code, name: c.name, address: c.address }) });
+    if (!x.ok) { b.disabled = false; alert('Échec de l’enregistrement.'); return; }
+    $('#offers-modal').close();
+    rerunProvider(provider);
+  });
+}
+async function rerunProvider(provider) {
+  const q = criteria(), nationality = $('#live-nationality').value;
+  const url = provider === 'tbo' ? '/api/tbo/search' : '/api/bedsonline/search';
+  if (provider === 'tbo') tbo = { loading: true }; else beds = { loading: true };
+  render();
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(provider === 'tbo' ? { ...q, nationality } : q) });
+  const d = await r.json().catch(() => ({}));
+  const v = r.ok ? d : { error: d.detail || d.error || 'SUPPLIER_ERROR' };
+  if (provider === 'tbo') tbo = v; else beds = v;
+  render();
+}
 // ---- Bedsonline / Hotelbeds ----
 const BEDS_ERRORS = {
   CONFIGURATION_MISSING: 'Les accès Bedsonline (HOTELBEDS_API_KEY, HOTELBEDS_SECRET) ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
@@ -229,7 +272,7 @@ function bedsBody(nRooms) {
   if (!beds) return { top: envTag(), html: '<div class="state">Prêt à rechercher.</div>' };
   if (beds.loading) return { top: envTag(), html: '<div class="state">Recherche en cours…</div>' };
   if (beds.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(BEDS_ERRORS[beds.error] ?? ERRORS[beds.error] ?? 'La recherche Bedsonline n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
-  if (beds.status === 'not_mapped') return { top: envTag(), html: `<div class="state">Hôtel pas encore associé à un code Bedsonline. ${mapLink()}</div>` };
+  if (beds.status === 'not_mapped') return { top: envTag(), html: `<div class="state">Hôtel pas encore associé à un code Bedsonline. ${mapLink('bedsonline')}</div>` };
   if (beds.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">Bedsonline renvoie des tarifs en ${esc(beds.currency)}. L’euro est imposé : offres masquées, sans conversion.</div>` };
   const p = panels.bedsonline;
   if (!p.received) return { top: envTag(), html: '<div class="state">Bedsonline n’a retourné aucune disponibilité pour ces critères.</div>' };
@@ -276,6 +319,7 @@ function render() {
       <div class="provider-bottom"><button type="button" data-offers="${prov.id}" ${b.count ? '' : 'disabled'}>Voir les chambres et conditions <span>↗</span></button></div></article>`;
   }).join('');
   $$('[data-offers]').forEach(btn => btn.onclick = () => openOffers(btn.dataset.offers));
+  $$('[data-match]').forEach(btn => btn.onclick = () => openMatch(btn.dataset.match));
 }
 
 const snapshotCheckin = () => beds?.criteria?.checkin ?? $('#live-in').value;

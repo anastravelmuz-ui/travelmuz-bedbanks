@@ -109,10 +109,10 @@ const content = v => (v && typeof v === 'object' ? v.content ?? null : typeof v 
 export async function hotelbedsHotels(destinationCode, from, cfg, fetcher = fetch) {
   if (!/^[A-Z0-9]{2,6}$/.test(String(destinationCode))) throw new Error('CRITERIA_INVALID');
   const start = Number.isInteger(from) && from >= 1 ? from : 1;
-  const qs = new URLSearchParams({ destinationCode, fields: 'code,name,address,categoryCode,city,postalCode', language: 'ENG', from: String(start), to: String(start + 999), useSecondaryLanguage: 'false' });
+  const qs = new URLSearchParams({ destinationCode, fields: 'code,name,address,categoryCode,city,postalCode,coordinates', language: 'ENG', from: String(start), to: String(start + 999), useSecondaryLanguage: 'false' });
   const data = await call(cfg, `/hotel-content-api/1.0/hotels?${qs}`, {}, fetcher);
   if (!Array.isArray(data?.hotels)) throw new Error('SUPPLIER_INVALID_RESPONSE');
-  return { total: num(data.total), from: start, hotels: data.hotels.map(h => ({ code: String(h.code), name: content(h.name), address: [content(h.address), h.postalCode, content(h.city)].filter(Boolean).join(', '), rating: h.categoryCode ?? null })) };
+  return { total: num(data.total), from: start, hotels: data.hotels.map(h => ({ code: String(h.code), name: content(h.name), address: [content(h.address), h.postalCode, content(h.city)].filter(Boolean).join(', '), rating: h.categoryCode ?? null, lat: num(h.coordinates?.latitude), lng: num(h.coordinates?.longitude) })) };
 }
 
 export async function hotelbedsDetails(hotelCode, cfg, fetcher = fetch) {
@@ -143,4 +143,24 @@ export async function hotelbedsRateComments(code, date, cfg, fetcher = fetch) {
   const data = await call(cfg, `/hotel-content-api/1.0/types/ratecommentdetails?${qs}`, {}, fetcher);
   if (!Array.isArray(data?.rateComments)) throw new Error('SUPPLIER_INVALID_RESPONSE');
   return data.rateComments.map(c => ({ dateStart: c.dateStart ?? null, dateEnd: c.dateEnd ?? null, description: typeof c.description === 'string' ? c.description.slice(0, 2000) : null })).filter(c => c.description);
+}
+
+/** Destinations Hotelbeds d'un pays (code destination ↔ nom), pour retrouver la destination d'une ville. */
+export async function hotelbedsDestinations(countryCode, cfg, fetcher = fetch) {
+  if (!/^[A-Z]{2}$/.test(String(countryCode))) throw new Error('CRITERIA_INVALID');
+  const qs = new URLSearchParams({ fields: 'code,name,countryCode', countryCodes: countryCode, language: 'ENG', from: '1', to: '1000', useSecondaryLanguage: 'false' });
+  const data = await call(cfg, `/hotel-content-api/1.0/locations/destinations?${qs}`, {}, fetcher);
+  if (!Array.isArray(data?.destinations)) throw new Error('SUPPLIER_INVALID_RESPONSE');
+  return data.destinations.map(d => ({ code: String(d.code), name: content(d.name) ?? String(d.code) }));
+}
+/** Tous les hôtels d'une destination (pages de 1 000, 6 pages maximum pour préserver le quota). */
+export async function hotelbedsAllHotels(destinationCode, cfg, fetcher = fetch) {
+  const all = []; let from = 1;
+  for (let i = 0; i < 6; i++) {
+    const r = await hotelbedsHotels(destinationCode, from, cfg, fetcher);
+    all.push(...r.hotels);
+    if (!r.total || from + 999 >= r.total || !r.hotels.length) break;
+    from += 1000;
+  }
+  return all;
 }
