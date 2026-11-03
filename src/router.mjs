@@ -5,7 +5,7 @@ import { createD1Store } from '../server/auth-store-d1.mjs';
 import { handleAuth, currentUser } from '../server/auth-http.mjs';
 import { validateSearch, searchHalalbooking, searchHalalbookingDestination, CRITERIA_ERRORS } from '../server/halalbooking.mjs';
 import { createCatalog, placeRow, syncBatch, fetchContentPage } from '../server/hb-catalog.mjs';
-import { rankCandidates, countryCode, pickCity } from '../server/matching.mjs';
+import { rankCandidates, countryCode, pickCities } from '../server/matching.mjs';
 import { tboConfig, searchTbo, tboCities, tboHotels, tboHotelDetails, attachRoomDetails, TBO_ERRORS } from '../server/tbo.mjs';
 import { createDetailsCache, cachedDetails } from '../server/tbo-cache.mjs';
 import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hotelbedsDetails, attachHotelbedsDetails, hotelbedsRateComments, hotelbedsDestinations, hotelbedsAllHotels, HOTELBEDS_ERRORS } from '../server/hotelbeds.mjs';
@@ -132,21 +132,24 @@ async function matchSuggest(env, user, url) {
   const cc = countryCode(source.country);
   if (!cc) return json({ error: 'COUNTRY_UNKNOWN', source }, 422);
   try {
-    let city, list, cached;
+    // Plusieurs villes fournisseur explorées : un même quartier est souvent classé sous une autre ville (ex. Kuta / Seminyak, Bali).
+    let explored, list = [];
     if (provider === 'tbo') {
       const cfg = tboConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
       const cities = (await cachedList(env, `tbo-cities:${cc}`, () => tboCities(cc, cfg))).value;
-      city = pickCity(source.city, cities);
-      if (!city) return json({ error: 'CITY_NOT_FOUND', source, country: cc }, 404);
-      ({ value: list, cached } = await cachedList(env, `tbo-hotels:${city.code}`, async () => (await tboHotels(city.code, cfg)).map(compact)));
+      explored = pickCities(source, cities, 10);
+      for (const c of explored) list.push(...(await cachedList(env, `tbo-hotels:${c.code}`, async () => (await tboHotels(c.code, cfg)).map(compact))).value.map(h => ({ ...h, city: c.name })));
     } else {
       const cfg = hotelbedsConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
       const dests = (await cachedList(env, `hbeds-dest:${cc}`, () => hotelbedsDestinations(cc, cfg))).value;
-      city = pickCity(source.city, dests);
-      if (!city) return json({ error: 'CITY_NOT_FOUND', source, country: cc }, 404);
-      ({ value: list, cached } = await cachedList(env, `hbeds-hotels:${city.code}`, async () => (await hotelbedsAllHotels(city.code, cfg)).map(compact)));
+      explored = pickCities(source, dests, 2); // quota d'évaluation : 2 destinations au plus
+      for (const c of explored) list.push(...(await cachedList(env, `hbeds-hotels:${c.code}`, async () => (await hotelbedsAllHotels(c.code, cfg)).map(compact))).value.map(h => ({ ...h, city: c.name })));
     }
-    return json({ source: { id: source.id, name: source.name, city: source.city, country: source.country, address: source.address, lat: source.lat, lng: source.lng }, city, scanned: list.length, cached, candidates: rankCandidates(source, list) });
+    if (!explored.length) return json({ error: 'CITY_NOT_FOUND', source, country: cc }, 404);
+    const unique = [...new Map(list.map(h => [h.code, h])).values()];
+    const candidates = rankCandidates(source, unique);
+    const nearest = candidates.length ? Math.min(...candidates.map(c => c.distanceM ?? Infinity)) : Infinity;
+    return json({ source: { id: source.id, name: source.name, city: source.city, subregion: source.subregion, region: source.region, country: source.country, address: source.address, lat: source.lat, lng: source.lng }, city: { code: explored[0].code, name: explored.map(c => c.name.replace(/\s+/g, ' ')).join(', ') }, explored: explored.map(c => c.name), scanned: unique.length, candidates, noneNearby: source.lat != null && !(nearest < 1000) });
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 

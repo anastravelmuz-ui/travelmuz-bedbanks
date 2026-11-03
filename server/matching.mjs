@@ -69,3 +69,20 @@ export function pickCity(cityName, cities) {
   if (!n) return null;
   return cities.find(c => normalize(c.name) === n) ?? cities.find(c => normalize(c.name).startsWith(n + ' ') || normalize(c.name) === n.split(' ')[0]) ?? null;
 }
+
+/**
+ * Villes fournisseur à explorer : la ville exacte d'abord, puis celles dont le nom contient la ville,
+ * la sous-région ou la région Halalbooking (ex. « Kuta » → « Kuta, Bali », « Seminyak, Bali »…).
+ * Les fournisseurs classent souvent un même quartier sous des villes différentes.
+ */
+export function pickCities(source, cities, max = 12) {
+  const keys = [source.city, source.subregion, source.region].map(normalize).filter(k => k && k.length >= 3);
+  const scored = [];
+  for (const c of cities) {
+    const n = normalize(c.name);
+    const rank = n === keys[0] ? 0 : keys[0] && (n.startsWith(keys[0] + ' ') || n.split(' ').includes(keys[0])) ? 1
+      : keys.slice(1).some(k => n === k || n.split(' ').includes(k) || n.includes(' ' + k)) ? 2 : null;
+    if (rank != null) scored.push({ ...c, rank });
+  }
+  return scored.sort((a, b) => a.rank - b.rank).slice(0, max);
+}

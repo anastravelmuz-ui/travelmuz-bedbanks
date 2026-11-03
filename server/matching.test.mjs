@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nameScore, distanceM, rankCandidates, countryCode, pickCity } from './matching.mjs';
+import { nameScore, distanceM, rankCandidates, countryCode, pickCity, pickCities } from './matching.mjs';
 
 test('similarité des noms et distance', () => {
   assert.ok(nameScore('Deluxe Golden Horn Sultanahmet', 'Deluxe Golden Horn Sultanahmet Hotel') >= 0.85);
@@ -32,4 +32,11 @@ test('pays et villes', () => {
   assert.equal(countryCode('Malaysia'), 'MY'); assert.equal(countryCode('Atlantis'), null);
   assert.deepEqual(pickCity('Istanbul', [{ code: '2', name: 'Istanbul-Silivri' }, { code: '1', name: 'Istanbul' }]), { code: '1', name: 'Istanbul' });
   assert.equal(pickCity('Nowhere', [{ code: '1', name: 'Istanbul' }]), null);
+});
+
+test('villes voisines : quartier classé sous une autre ville (Bali)', () => {
+  const cities = [{ code: '1', name: 'Kuta,   Bali' }, { code: '2', name: 'Seminyak, Bali' }, { code: '3', name: 'Ubud, Bali' }, { code: '4', name: 'Jakarta' }, { code: '5', name: 'Kuta Lombok' }];
+  const r = pickCities({ city: 'Kuta', subregion: 'Bali', region: 'Lesser Sunda Islands' }, cities);
+  assert.deepEqual(r.map(c => c.code), ['1', '5', '2', '3']);
+  assert.deepEqual(pickCities({ city: 'Istanbul' }, [{ code: '9', name: 'Istanbul' }]).map(c => c.code), ['9']);
 });

@@ -225,9 +225,10 @@ async function openMatch(provider) {
   if (!r.ok) { $('#offers-body').innerHTML = `<div class="empty">${why[d.error] ?? 'Suggestions indisponibles pour le moment.'} <a href="/admin.html?hotel=${encodeURIComponent(place.id)}#place-card">Association manuelle</a></div>`; return; }
   const src = d.source;
   const fmtD = m => (m == null ? 'distance inconnue' : m < 1000 ? `à ${m} m` : `à ${(m / 1000).toFixed(1).replace('.', ',')} km`);
-  $('#offers-body').innerHTML = `<p class="subtle">Halalbooking : ${esc(src.name)} · ${esc(src.address ?? src.city ?? '')}${src.lat == null ? ' · coordonnées GPS non disponibles (nom seul)' : ''}. ${d.scanned} hôtels ${label} analysés à ${esc(d.city.name)}.</p>`
+  $('#offers-body').innerHTML = `<p class="subtle">Halalbooking : ${esc(src.name)} · ${esc(src.address ?? src.city ?? '')}${src.lat == null ? ' · coordonnées GPS non disponibles (nom seul)' : ''}. ${d.scanned} hôtels ${label} analysés (${esc(d.city.name)}).</p>`
+    + (d.noneNearby ? `<p class="msg info">Aucun hôtel ${label} à moins de 1 km : l’établissement est peut-être absent du catalogue ${label}, ou classé sous un autre nom. N’associez que si vous êtes certain qu’il s’agit du même hôtel. <a href="/admin.html?hotel=${encodeURIComponent(place.id)}#place-card">Recherche manuelle</a></p>` : '')
     + (d.candidates.length ? d.candidates.map(c => `<article class="live-card match-card${c.strong ? ' strong' : ''}"><div><span class="tag">${c.strong ? 'Très probable · même nom, moins de 250 m' : `Ressemblance ${Math.round(c.nameScore * 100)} %`}</span><h3>${esc(c.name ?? 'Nom non fourni')}</h3>
-      <p>${esc(c.address ?? 'Adresse non fournie')}</p><p>${esc(c.rating ?? '')} · ${fmtD(c.distanceM)} · code ${esc(c.code)}</p></div>
+      <p>${esc(c.address ?? 'Adresse non fournie')}</p><p>${esc(c.rating ?? '')} · ${fmtD(c.distanceM)} · ${esc((c.city ?? '').replace(/\s+/g, ' '))} · code ${esc(c.code)}</p></div>
       <div class="live-price"><button type="button" class="btn-compare" data-assoc="${esc(c.code)}">Associer</button></div></article>`).join('')
       : `<div class="empty">Aucun hôtel ${label} suffisamment proche par le nom ou la position.</div>`);
   $$('#offers-body [data-assoc]').forEach(b => b.onclick = async () => {

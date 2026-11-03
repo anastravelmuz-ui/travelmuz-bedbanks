@@ -39,7 +39,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS hb_catalog_state (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
 ];
 let ready = null;
-const fromRow = r => r && { id: r.id, name: r.name, stars: r.stars, city: r.city, region: r.region, country: r.country, address: r.address, lat: r.lat, lng: r.lng, holidayType: r.holiday_type, photo: r.photo };
+const fromRow = r => r && { id: r.id, name: r.name, stars: r.stars, city: r.city, region: r.region, subregion: r.subregion, country: r.country, address: r.address, lat: r.lat, lng: r.lng, holidayType: r.holiday_type, photo: r.photo };
 
 export function createCatalog(db) {
   if (db?.__catalogMemory) return db.__catalogMemory;
@@ -74,7 +74,7 @@ export function createMemoryCatalog() {
     async upsert(list) { for (const r of list) { const old = rows.get(r.id); rows.set(r.id, old ? { ...r, lat: r.lat ?? old.lat, lng: r.lng ?? old.lng, address: r.address ?? old.address } : r); } },
     async state() { return { ...st, count: rows.size }; },
     async setState(k, v) { st[k] = v; },
-    async get(id) { const r = rows.get(id); return r ? { id: r.id, name: r.name, stars: r.stars, city: r.city, region: r.region, country: r.country, address: r.address, lat: r.lat, lng: r.lng, holidayType: r.holidayType, photo: r.photo } : null; },
+    async get(id) { const r = rows.get(id); return r ? { id: r.id, name: r.name, stars: r.stars, city: r.city, region: r.region, subregion: r.subregion, country: r.country, address: r.address, lat: r.lat, lng: r.lng, holidayType: r.holidayType, photo: r.photo } : null; },
     async suggest(q) {
       const n = normalize(q); if (n.length < 2) return { hotels: [], cities: [] };
       const all = [...rows.values()];
