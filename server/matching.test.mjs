@@ -38,5 +38,7 @@ test('villes voisines : quartier classé sous une autre ville (Bali)', () => {
   const cities = [{ code: '1', name: 'Kuta,   Bali' }, { code: '2', name: 'Seminyak, Bali' }, { code: '3', name: 'Ubud, Bali' }, { code: '4', name: 'Jakarta' }, { code: '5', name: 'Kuta Lombok' }];
   const r = pickCities({ city: 'Kuta', subregion: 'Bali', region: 'Lesser Sunda Islands' }, cities);
   assert.deepEqual(r.map(c => c.code), ['1', '5', '2', '3']);
+  const r2 = pickCities({ city: 'Kuta', subregion: 'Bali' }, [{ code: 'a', name: 'Ababi, Bali' }, { code: 'b', name: 'Bali, Bali' }, { code: 'k', name: 'Kuta, Bali' }]);
+  assert.deepEqual(r2.map(c => c.code), ['k', 'b', 'a']); // « Bali, Bali » avant les villages
   assert.deepEqual(pickCities({ city: 'Istanbul' }, [{ code: '9', name: 'Istanbul' }]).map(c => c.code), ['9']);
 });

@@ -80,8 +80,13 @@ export function pickCities(source, cities, max = 12) {
   const scored = [];
   for (const c of cities) {
     const n = normalize(c.name);
-    const rank = n === keys[0] ? 0 : keys[0] && (n.startsWith(keys[0] + ' ') || n.split(' ').includes(keys[0])) ? 1
-      : keys.slice(1).some(k => n === k || n.split(' ').includes(k) || n.includes(' ' + k)) ? 2 : null;
+    // 0 : ville exacte · 1 : nom commençant par la ville · 2 : ville portant le nom de la (sous-)région (ex. « Bali, Bali »)
+    // 3 : nom contenant la ville · 4 : nom contenant la (sous-)région
+    const first = n.split(' ')[0], parts = n.split(' ');
+    const rank = n === keys[0] ? 0 : keys[0] && n.startsWith(keys[0] + ' ') ? 1
+      : keys.slice(1).some(k => n === k || n.startsWith(k + ' ' + k) || (first === k && parts.length <= 2)) ? 2
+      : keys[0] && parts.includes(keys[0]) ? 3
+      : keys.slice(1).some(k => parts.includes(k) || n.includes(' ' + k)) ? 4 : null;
     if (rank != null) scored.push({ ...c, rank });
   }
   return scored.sort((a, b) => a.rank - b.rank).slice(0, max);
