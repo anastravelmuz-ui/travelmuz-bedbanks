@@ -17,12 +17,15 @@
   ],
   "vars": {
     // TBO staging (D-013) ; la production remplacera ces URL en fin de projet.
-    "TBO_BASE_URL": "https://api.tbotechnology.in/TBOHolidays_HotelAPI"
+    "TBO_BASE_URL": "https://api.tbotechnology.in/TBOHolidays_HotelAPI",
+    // Offre Workers Paid (validée par l'utilisateur le 4/11) : un lot par minute, accélération manuelle autorisée.
+    "CATALOG_CRON_GAP_MIN": "1",
+    "CATALOG_FAST": "true"
   },
   // Ne jamais effacer au déploiement les variables saisies dans le tableau de bord Cloudflare.
   "keep_vars": true,
   // Synchronisation du catalogue Halalbooking en arrière-plan (toutes les minutes, s'arrête une fois à jour)
-  "triggers": { "crons": ["*/5 * * * *"] },
+  "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true },
   "workers_dev": true
   // Secrets à saisir dans Cloudflare (Paramètres > Variables et secrets), jamais dans ce fichier :
