@@ -164,14 +164,26 @@ async function matchSuggest(env, user, url) {
  * Synchronisation automatique (une exécution par minute) : continue l'import page par page ;
  * une fois terminé, ne recommence qu'après 7 jours. Les erreurs sont notées dans l'état, sans arrêter les exécutions suivantes.
  */
+/**
+ * Tâche planifiée (toutes les 5 min) : un lot au plus tous les CATALOG_CRON_GAP_MIN minutes (45 par défaut),
+ * pour rester sous les quotas gratuits D1 (5 M lignes lues, 100 000 écrites par jour) ; 1 si offre Workers Paid.
+ * Import du catalogue d'abord, puis rattrapage de l'index des mots ; renouvellement tous les 30 jours.
+ */
 export async function runCatalogCron(env, now = Date.now()) {
   if (!env.DB || !env.HALALBOOKING_PARTNER_CODE || !env.HALALBOOKING_SECRET_KEY) return { skipped: 'configuration' };
+  const gap = (Number(env.CATALOG_CRON_GAP_MIN) > 0 ? Number(env.CATALOG_CRON_GAP_MIN) : 45) * 60e3;
   const catalog = createCatalog(env.DB);
-  const sync = (await catalog.state()).sync ?? {};
-  if (sync.completedAt && now - sync.completedAt < 7 * 24 * 3600e3 && (sync.nextPage ?? 1) === 1) return { skipped: 'à jour' };
-  const from = sync.nextPage ?? 1;
-  try { return await syncBatch(catalog, from, hbCreds(env)); }
-  catch (e) { await catalog.setState('sync', { ...sync, lastError: e instanceof Error ? e.message : 'SUPPLIER_ERROR', lastErrorAt: now }); return { error: true }; }
+  const sync = await catalog.syncState(); // 1 ligne lue
+  if (sync.lastBatchAt && now - sync.lastBatchAt < gap) return { skipped: 'trop tôt' };
+  const fresh = sync.completedAt && now - sync.completedAt < 30 * 24 * 3600e3 && (sync.nextPage ?? 1) === 1;
+  if (fresh) {
+    if (sync.wordsDone) return { skipped: 'à jour' };
+    const w = await catalog.backfillWords(sync.wordsAfter ?? 0);
+    await catalog.setState('sync', { ...sync, wordsAfter: w.lastId, wordsDone: w.done, lastBatchAt: now });
+    return { words: w };
+  }
+  try { return await syncBatch(catalog, sync.nextPage ?? 1, hbCreds(env)); }
+  catch (e) { await catalog.setState('sync', { ...sync, lastError: e instanceof Error ? e.message : 'SUPPLIER_ERROR', lastErrorAt: now, lastBatchAt: now }); return { error: true }; }
 }
 
 async function catalogAdmin(request, env, user, path) {
@@ -183,6 +195,8 @@ async function catalogAdmin(request, env, user, path) {
   if (path === '/api/admin/catalog/sync' && request.method === 'POST') {
     if (!sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
     let b; try { b = await readJson(request); } catch { return json({ error: 'INVALID_BODY' }, 400); }
+    // Accélération manuelle : seulement si l'offre D1 le permet (sinon risque de bloquer toute l'application, connexions comprises).
+    if (env.CATALOG_FAST !== 'true') return json({ error: 'QUOTA_PROTECTION' }, 409);
     const from = Number.isInteger(b.from) && b.from >= 1 ? b.from : 1;
     try { return json(await syncBatch(catalog, from, hbCreds(env))); }
     catch (e) { return json({ error: e instanceof Error ? e.message : 'SUPPLIER_ERROR' }, 502); }

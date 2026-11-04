@@ -46,7 +46,7 @@ async function catalogState() {
   const running = sync.nextPage > 1;
   $('cat-state').textContent = `${s.count.toLocaleString('fr-FR')} établissement(s) dans le catalogue. `
     + (running ? `Import automatique en arrière-plan : page ${sync.nextPage}${sync.totalPages ? ' sur ' + sync.totalPages : ''}, dernier lot ${when(sync.lastBatchAt)}. Vous pouvez fermer cette page.` : '')
-    + (sync.completedAt ? ` Dernière synchronisation complète : ${when(sync.completedAt)} (renouvelée automatiquement tous les 7 jours).` : running ? '' : ' Import automatique en attente de démarrage.')
+    + (sync.completedAt ? ` Dernière synchronisation complète : ${when(sync.completedAt)} (renouvelée automatiquement tous les 30 jours).` : running ? '' : ' Import automatique en attente de démarrage.')
     + (sync.lastError ? ` Dernière erreur : ${sync.lastError} (${when(sync.lastErrorAt)}), l’import reprendra seul.` : '');
   return sync;
 }
@@ -57,6 +57,7 @@ $('cat-sync').onclick = async () => {
   while (!stop) {
     const r = await fetch('/api/admin/catalog/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from }) });
     const d = await r.json().catch(() => ({}));
+    if (d.error === 'QUOTA_PROTECTION') { $('cat-state').textContent = 'Accélération désactivée pour protéger les quotas gratuits Cloudflare D1 : l’import continue seul en arrière-plan, plus lentement.'; break; }
     if (!r.ok) { $('cat-state').textContent = `Synchronisation interrompue (${d.error ?? 'erreur'}) à la page ${from}. Relancez pour reprendre.`; break; }
     $('cat-state').textContent = `Import en cours : page ${Math.min(d.nextPage - 1, d.totalPages ?? d.nextPage)} sur ${d.totalPages ?? '?'}…`;
     if (d.done) { await catalogState(); break; }

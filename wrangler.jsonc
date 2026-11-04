@@ -22,7 +22,7 @@
   // Ne jamais effacer au déploiement les variables saisies dans le tableau de bord Cloudflare.
   "keep_vars": true,
   // Synchronisation du catalogue Halalbooking en arrière-plan (toutes les minutes, s'arrête une fois à jour)
-  "triggers": { "crons": ["* * * * *"] },
+  "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true },
   "workers_dev": true
   // Secrets à saisir dans Cloudflare (Paramètres > Variables et secrets), jamais dans ce fichier :
