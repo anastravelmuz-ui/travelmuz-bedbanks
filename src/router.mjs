@@ -176,13 +176,15 @@ export async function runCatalogCron(env, now = Date.now()) {
   const sync = await catalog.syncState(); // 1 ligne lue
   if (sync.lastBatchAt && now - sync.lastBatchAt < gap) return { skipped: 'trop tôt' };
   const fresh = sync.completedAt && now - sync.completedAt < 30 * 24 * 3600e3 && (sync.nextPage ?? 1) === 1;
-  if (fresh) {
+  // Index des mots incomplet : un lot sur deux lui est consacré pendant l'import (recherche par nom rétablie plus vite).
+  const wordsTurn = !sync.wordsDone && Math.floor(now / gap) % 2 === 0;
+  if (fresh || wordsTurn) {
     if (sync.wordsDone) return { skipped: 'à jour' };
     const w = await catalog.backfillWords(sync.wordsAfter ?? 0);
     await catalog.setState('sync', { ...sync, wordsAfter: w.lastId, wordsDone: w.done, lastBatchAt: now });
     return { words: w };
   }
-  try { return await syncBatch(catalog, sync.nextPage ?? 1, hbCreds(env)); }
+  try { return await syncBatch(catalog, sync.nextPage ?? 1, hbCreds(env), fetch, undefined, now); }
   catch (e) { await catalog.setState('sync', { ...sync, lastError: e instanceof Error ? e.message : 'SUPPLIER_ERROR', lastErrorAt: now, lastBatchAt: now }); return { error: true }; }
 }
 

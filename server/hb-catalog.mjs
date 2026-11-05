@@ -89,6 +89,11 @@ export function createCatalog(db) {
       const hi = n + '{';
       const qw = n.split(' ').filter(Boolean), key = [...qw].sort((a, b) => b.length - a.length)[0];
       const found = (await db.prepare('SELECT p.* FROM hb_words w JOIN hb_places p ON p.id = w.id WHERE w.word >= ? AND w.word < ? LIMIT 60').bind(key, key + '{').all()).results ?? [];
+      // Secours sans écriture : début du nom complet (index name_norm), tant que l'index des mots n'est pas complet.
+      if (found.length < 8) {
+        const seen = new Set(found.map(r => r.id));
+        for (const r of (await db.prepare('SELECT * FROM hb_places WHERE name_norm >= ? AND name_norm < ? ORDER BY name_norm LIMIT 8').bind(n, n + '{').all()).results ?? []) if (!seen.has(r.id)) found.push(r);
+      }
       const hotels = found.filter(r => matchesWords(r.name_norm, qw)).sort((a, b) => (b.name_norm.startsWith(n) - a.name_norm.startsWith(n)) || (b.stars ?? 0) - (a.stars ?? 0)).slice(0, 8).map(fromRow);
       const cities = n.length < 3 ? [] : ((await db.prepare('SELECT city, country, COUNT(*) AS n FROM hb_places WHERE city_norm >= ? AND city_norm < ? AND city IS NOT NULL GROUP BY city, country ORDER BY n DESC LIMIT 6').bind(n, hi).all()).results ?? []).map(r => ({ city: r.city, country: r.country, count: r.n }));
       return { hotels, cities };
@@ -129,7 +134,7 @@ export function createMemoryCatalog() {
 }
 
 /** Un lot de synchronisation : pages [from, from + n). */
-export async function syncBatch(catalog, from, credentials, fetcher = fetch, n = PAGES_PER_BATCH) {
+export async function syncBatch(catalog, from, credentials, fetcher = fetch, n = PAGES_PER_BATCH, now = Date.now()) {
   let totalPages = null, imported = 0, page = from, ended = false;
   for (; page < from + n; page++) {
     const r = await fetchContentPage(page, credentials, fetcher);
@@ -142,6 +147,6 @@ export async function syncBatch(catalog, from, credentials, fetcher = fetch, n =
   const done = ended;
   const prev = await catalog.syncState();
   // completedAt conservé tant qu'une nouvelle synchronisation complète n'est pas terminée
-  await catalog.setState('sync', { ...(from === 1 ? {} : { wordsAfter: prev.wordsAfter, wordsDone: prev.wordsDone }), nextPage: done ? 1 : page, totalPages, lastBatchAt: Date.now(), startedAt: from === 1 ? Date.now() : prev.startedAt ?? null, completedAt: done ? Date.now() : (from === 1 ? null : prev.completedAt ?? null) });
+  await catalog.setState('sync', { ...(from === 1 ? {} : { wordsAfter: prev.wordsAfter, wordsDone: prev.wordsDone }), nextPage: done ? 1 : page, totalPages, lastBatchAt: now, startedAt: from === 1 ? now : prev.startedAt ?? null, completedAt: done ? now : (from === 1 ? null : prev.completedAt ?? null) });
   return { imported, nextPage: page, totalPages, done };
 }

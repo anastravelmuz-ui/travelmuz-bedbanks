@@ -156,14 +156,16 @@ test('Synchronisation automatique du catalogue : reprise, arrêt une fois à jou
   const page = n => Array.from({ length: 50 }, (_, i) => ({ id: n * 100 + i, name: 'H' + n + '-' + i, location: { city: 'X', country: 'Turkey' } }));
   globalThis.fetch = async u => { const p = Number(new URL(u).searchParams.get('page')); return Response.json({ data: p <= 8 ? page(p) : [] }); };
   const e = { DB: { __catalogMemory: cat }, HALALBOOKING_PARTNER_CODE: 'p', HALALBOOKING_SECRET_KEY: 's' };
-  const H = 3600e3, t0 = Date.now();
+  const G = 45 * 60e3, slot = k => (Math.floor(Date.now() / G) + 1000 + k) * G; // créneaux pairs : index des mots ; impairs : import
+  const odd = k => slot(k) % (2 * G) === 0 ? slot(k + 1) : slot(k);
+  const t0 = odd(0);
   const r1 = await runCatalogCron(e, t0); assert.equal(r1.done, false);
   assert.equal((await runCatalogCron(e, t0 + 60e3)).skipped, 'trop tôt'); // quota D1 : un lot au plus toutes les 45 min
-  const r2 = await runCatalogCron(e, t0 + H); assert.equal(r2.done, true);
-  assert.equal((await runCatalogCron(e, Date.now() + 2 * H)).words.done, true); // rattrapage de l'index des mots
-  assert.equal((await runCatalogCron(e, Date.now() + 4 * H)).skipped, 'à jour');
+  assert.equal((await runCatalogCron(e, t0 + G)).words.done, true); // créneau pair : rattrapage de l'index des mots
+  const r2 = await runCatalogCron(e, t0 + 2 * G); assert.equal(r2.done, true);
+  assert.equal((await runCatalogCron(e, t0 + 4 * G)).skipped, 'à jour');
   assert.equal((await cat.state()).count, 400);
   globalThis.fetch = async () => new Response('', { status: 500 });
-  assert.equal((await runCatalogCron(e, Date.now() + 31 * 24 * 3600e3)).error, true);
+  assert.equal((await runCatalogCron(e, t0 + 31 * 24 * 3600e3)).error, true);
   assert.equal((await cat.state()).sync.lastError, 'SUPPLIER_ERROR');
 });
