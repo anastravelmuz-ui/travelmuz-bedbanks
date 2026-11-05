@@ -33,6 +33,7 @@ export function validateBooking(b) {
     purchase: null, payment: ['prepaid', 'hotel', 'unknown'].includes(b.payment) ? b.payment : 'unknown',
     nonRefundable: b.nonRefundable === true,
     deadline: null, noShow: str(b.noShow, 120), notes: str(b.notes, 2000),
+    hbPlaceId: b.hbPlaceId == null ? null : int(b.hbPlaceId, 1, 1e9), // hôtel du catalogue, pour « Comparer maintenant »
   };
   if (out.checkout <= out.checkin) fail('DATES_ORDER');
   if (!Array.isArray(b.rooms) || b.rooms.length < 1 || b.rooms.length > 9) fail('ROOMS_INVALID');

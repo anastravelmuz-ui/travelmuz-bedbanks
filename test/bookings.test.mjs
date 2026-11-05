@@ -91,6 +91,9 @@ test('API réservations : connexion requise, origine, partage entre agents, supp
   assert.equal(list.bookings.length, 1);
   const up = await (await call('/api/bookings/' + booking.id, { method: 'PUT', cookie: mehdi, body: { ...valid(), reference: 'TM-2' } })).json();
   assert.deepEqual([up.booking.reference, up.booking.updatedBy, up.booking.createdBy], ['TM-2', 'mehdi@travelmuz.fr', 'myriam@travelmuz.fr']);
+  const link = await (await call('/api/bookings/' + booking.id + '/hotel', { method: 'POST', cookie: mehdi, body: { hbPlaceId: 1461 } })).json();
+  assert.deepEqual([link.booking.hbPlaceId, link.booking.reference, link.booking.createdBy], [1461, 'TM-2', 'myriam@travelmuz.fr']);
+  assert.equal((await call('/api/bookings/' + booking.id + '/hotel', { method: 'POST', cookie: mehdi, body: { hbPlaceId: 'x' } })).status, 400);
   assert.equal((await call('/api/bookings/' + booking.id, { method: 'DELETE', cookie: mehdi })).status, 403);
   assert.equal((await call('/api/bookings/' + booking.id, { method: 'DELETE', cookie: admin })).status, 200);
   assert.equal((await call('/api/bookings/' + booking.id, { cookie: myriam })).status, 404);

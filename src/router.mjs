@@ -331,6 +331,14 @@ async function bookings(request, env, user, path) {
   if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
   const body = async () => { try { return { data: validateBooking(await readJson(request, 32768)) }; } catch (e) { return { error: json({ error: 'INVALID_BOOKING', detail: e instanceof Error ? e.message : 'BODY_INVALID' }, 400) }; } };
   if (path === '/api/bookings' && request.method === 'POST') { const b = await body(); return b.error ?? json({ booking: await store.create(b.data, user.email) }, 201); }
+  const hotelLink = id.match(/^([0-9a-f-]{36})\/hotel$/);
+  if (hotelLink && request.method === 'POST') { // rattachement à l'hôtel du catalogue choisi par l'agent
+    let b; try { b = await readJson(request); } catch { return json({ error: 'INVALID_BODY' }, 400); }
+    if (!Number.isSafeInteger(b?.hbPlaceId) || b.hbPlaceId < 1) return json({ error: 'INVALID_BOOKING', detail: 'NUMBER_INVALID' }, 400);
+    const r = await store.get(hotelLink[1]); if (!r) return json({ error: 'NOT_FOUND' }, 404);
+    const { id: _i, createdAt, createdBy, updatedAt, updatedBy, ...data } = r;
+    return json({ booking: await store.update(r.id, { ...data, hbPlaceId: b.hbPlaceId }, user.email) });
+  }
   if (!BOOKING_ID.test(id)) return json({ error: 'NOT_FOUND' }, 404);
   if (request.method === 'GET') { const r = await store.get(id); return r ? json({ booking: r }) : json({ error: 'NOT_FOUND' }, 404); }
   if (request.method === 'PUT') { const b = await body(); if (b.error) return b.error; const r = await store.update(id, b.data, user.email); return r ? json({ booking: r }) : json({ error: 'NOT_FOUND' }, 404); }

@@ -4,6 +4,7 @@ import { tboCancellationState, parseTboDate } from './tbo-core.mjs';
 import { hbPanel, tboPanel, bedsPanel, comparePanels } from './compare-core.mjs';
 import { hbedsFreeUntil } from './hotelbeds-core.mjs';
 import { MEAL_LABELS } from './meal-core.mjs';
+import { assessPanel, bookingMeal } from './rebook-core.mjs';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -17,6 +18,8 @@ let beds = null; // Bedsonline : même forme
 const moneyIn = (n, cur) => { try { return typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur || 'EUR' }).format(n) : 'Montant non renseigné'; } catch { return `${n} ${cur ?? ''}`; } };
 let rooms = [{ adults: 2, children: [] }];
 let draft = null;
+let dossierNotes = [];
+let dossier = null; // dossier de réservation comparé (/?dossier=<id>)
 
 const MAX_ROOMS = 4, MAX_ADULTS = 6, MAX_CHILDREN = 4, MAX_CHILD_AGE = 12;
 const labels = { free: 'Sans frais actuellement', nonref: 'Non remboursable actuellement', fees: 'Annulable avec frais', unknown: 'Conditions à vérifier' };
@@ -316,7 +319,7 @@ function render() {
     const top = best ? (cmp.comparable ? 'PRIX LE PLUS BAS · COMPARABLE' : 'PRIX AFFICHÉ LE PLUS BAS · À VÉRIFIER') : b.top;
     return `<article class="provider${best ? ' best' : ''}${b.off ? ' off' : ''}"><div class="provider-top">${esc(top)}</div><div class="provider-main">
       <div class="provider-brand"><span class="provider-letter">${prov.letter}</span>${prov.name}</div>
-      ${b.count != null ? `<p class="subtle">${plural(b.count, 'offre')} correspondante${b.count > 1 ? 's' : ''}</p>` : ''}${b.html}</div>
+      ${b.count != null ? `<p class="subtle">${plural(b.count, 'offre')} correspondante${b.count > 1 ? 's' : ''}</p>` : ''}${b.html}${dossier ? assessHtml(panels[prov.id]) : ''}</div>
       <div class="provider-bottom"><button type="button" data-offers="${prov.id}" ${b.count ? '' : 'disabled'}>Voir les chambres et conditions <span>↗</span></button></div></article>`;
   }).join('');
   $$('[data-offers]').forEach(btn => btn.onclick = () => openOffers(btn.dataset.offers));
@@ -458,6 +461,7 @@ function hideSuggest() { $('#place-suggest').hidden = true; $('#live-place').set
 function choose(item) {
   place = item.type === 'hotel' ? { type: 'hotel', id: item.id, name: item.name, city: item.city, country: item.country } : { type: 'city', name: item.city, country: item.country };
   $('#live-place').value = place.name; hideSuggest(); markPending();
+  if (dossier && !dossier.hbPlaceId && place.type === 'hotel') linkDossierHotel(place);
 }
 function drawSuggest() {
   const box = $('#place-suggest');
@@ -496,3 +500,59 @@ $('#live-place').addEventListener('blur', () => setTimeout(hideSuggest, 120));
 const CRITERIA_CODES = ['LOCATION_INVALID', 'CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
 guestSummary(); markPending(); render();
 setInterval(() => { if (snapshot || tbo?.offers || beds?.offers) render(); }, 60000);
+
+// ---- Comparaison d'un dossier de réservation (/?dossier=<id>) : critères repris du dossier, aucune action fournisseur ----
+const fmtDl = d => d ? `${new Date(d.slice(0, 10) + 'T00:00:00Z').toLocaleDateString('fr-FR', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' })} ${d.slice(11, 16)} (UTC${d.slice(19)})` : '—';
+function assessHtml(panel) {
+  const a = assessPanel(panel, dossier);
+  if (a.status === 'na') return '';
+  const cur = dossier.purchase.currency;
+  const amount = a.diff == null ? '' : `${a.diff < 0 ? '−' : '+'}${moneyIn(Math.abs(a.diff), cur)}`;
+  const head = a.status === 'gain' ? `Gain potentiel ${esc(amount)} vs dossier` : a.status === 'none' ? `Pas moins cher (${esc(amount)})` : `Écart ${a.diff == null ? 'non calculable' : esc(amount)} · à vérifier`;
+  return `<div class="dossier-assess ${a.status}"><strong>${head}</strong>${a.status === 'gain' ? '<p>Chambre à comparer avec le dossier ; prix à reconfirmer avant toute décision.</p>' : ''}${a.reasons.length ? `<p>${esc(a.reasons.join(' · '))}</p>` : ''}</div>`;
+}
+function nationalityFromText(text) {
+  const n = String(text ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  if (!n) return null;
+  let en; try { en = new Intl.DisplayNames(['en'], { type: 'region' }); } catch { en = null; }
+  const norm = v => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  return [...$('#live-nationality').options].find(o => norm(o.textContent) === n || (en && norm(en.of(o.value)) === n) || o.value.toLowerCase() === n)?.value ?? null;
+}
+function dossierBanner(notes = []) {
+  let box = $('#dossier-banner');
+  if (!box) { box = document.createElement('div'); box.id = 'dossier-banner'; $('#live-search').before(box); }
+  const b = dossier, meal = bookingMeal(b);
+  box.className = 'dossier-banner';
+  box.innerHTML = `<div><p class="eyebrow">COMPARAISON D’UN DOSSIER RÉSERVÉ</p><strong>${esc(b.reference)} · ${esc(b.hotel)}</strong>
+    <p>Acheté ${esc(moneyIn(b.purchase.amount / 100, b.purchase.currency))} chez ${esc(b.supplier)} · ${esc(meal ? MEAL_LABELS[meal] : 'pension à vérifier')} · ${b.nonRefundable ? 'non remboursable' : 'sans frais jusqu’au ' + esc(fmtDl(b.deadline))}</p>
+    ${notes.map(t => `<p class="tbo-warn">${esc(t)}</p>`).join('')}</div><a class="text-button" href="/reservations.html">← Retour aux réservations</a>`;
+}
+async function linkDossierHotel(p) {
+  try {
+    const r = await fetch(`/api/bookings/${dossier.id}/hotel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hbPlaceId: p.id }) });
+    if (r.ok) { dossier.hbPlaceId = p.id; dossierNotes = [`Hôtel rattaché au dossier : ${p.name}.`, ...dossierNotes.slice(1)]; dossierBanner(dossierNotes); searchHotel(); }
+  } catch { /* rattachement facultatif : la recherche reste possible */ }
+}
+async function loadDossier(id) {
+  const r = await fetch('/api/bookings/' + encodeURIComponent(id)).catch(() => null);
+  if (!r?.ok) { $('#live-error').textContent = 'Dossier introuvable.'; return; }
+  dossier = (await r.json()).booking;
+  const notes = [];
+  $('#live-in').value = dossier.checkin; $('#live-out').value = dossier.checkout;
+  rooms = dossier.rooms.map(x => ({ adults: x.adults, children: [...x.childrenAges] })); guestSummary();
+  const nat = nationalityFromText(dossier.nationality);
+  if (nat) $('#live-nationality').value = nat; else notes.push(`Nationalité « ${dossier.nationality ?? 'non renseignée'} » non reconnue : choisissez-la ci-dessous.`);
+  notes.push(`Pays de résidence du client non enregistré dans le dossier : ${$('#live-country').selectedOptions[0]?.textContent ?? '?'} utilisé, à vérifier.`);
+  if (dossier.rooms.some(x => x.childrenAges.some(a => a > 12))) notes.push('Enfant de plus de 12 ans : Halalbooking le compte comme adulte, la recherche peut être refusée.');
+  if (dossier.hbPlaceId) {
+    const pi = await fetch('/api/places/info?id=' + dossier.hbPlaceId).then(x => x.ok ? x.json() : null).catch(() => null);
+    place = pi?.place ? { type: 'hotel', id: pi.place.id, name: pi.place.name, city: pi.place.city, country: pi.place.country } : { type: 'hotel', id: dossier.hbPlaceId, name: dossier.hotel };
+    $('#live-place').value = place.name; dossierBanner(notes); searchHotel();
+  } else {
+    notes.unshift('Choisissez l’hôtel correspondant dans la liste : il sera rattaché au dossier, puis la comparaison démarre.');
+    dossierNotes = notes; dossierBanner(notes);
+    const input = $('#live-place'); input.value = dossier.hotel; input.focus(); input.dispatchEvent(new Event('input'));
+  }
+}
+const dossierId = new URLSearchParams(location.search).get('dossier');
+if (dossierId && /^[0-9a-f-]{36}$/.test(dossierId)) loadDossier(dossierId);
