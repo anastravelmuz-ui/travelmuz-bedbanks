@@ -1,5 +1,7 @@
 // Module Réservations : liste partagée des dossiers, ajout depuis un voucher lu dans le navigateur, validation humaine.
 import { parseVoucher } from './voucher-core.mjs';
+import { hbPanel, tboPanel, bedsPanel } from './compare-core.mjs';
+import { assessPanel, freeUntilOf, bookingMeal } from './rebook-core.mjs';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -41,9 +43,10 @@ function render() {
   const q = $('#q').value.trim().toLowerCase(), f = $('#filter').value;
   const shown = list.filter(b => (f === 'all' || b.state === f) && [b.reference, b.hotel, b.leadGuest, b.supplierRef, b.city].join(' ').toLowerCase().includes(q));
   $('#count').textContent = `${shown.length} dossier(s) affiché(s) sur ${list.length}`;
-  $('#rows').innerHTML = shown.map(b => { const [label, cls] = STATE_LABEL[b.state]; return `<tr><td><strong>${esc(b.hotel)}</strong><small>${esc(b.reference)} · ${esc(b.supplier)}${b.supplierRef ? ' ' + esc(b.supplierRef) : ''}</small></td><td>${esc(b.leadGuest)}<small>${b.rooms.length} chambre(s) · ${b.rooms.reduce((s, r) => s + r.adults, 0)} adulte(s)${b.rooms.some(r => r.childrenAges.length) ? ' · ' + b.rooms.flatMap(r => r.childrenAges).length + ' enfant(s)' : ''}</small></td><td>${fmtDate(b.checkin)}<small>${nights(b.checkin, b.checkout)} nuit(s) · ${esc(MEALS[b.rooms[0]?.meal] ?? '')}</small></td><td>${money(b.purchase)}<small>${b.payment === 'prepaid' ? 'Prépayé' : b.payment === 'hotel' ? 'Payable à l’hôtel' : 'Paiement à vérifier'}</small></td><td>${b.nonRefundable ? '—' : fmtDeadline(b.deadline)}</td><td><span class="tag ${cls}">${label}</span></td><td><a class="text-button" href="/?dossier=${esc(b.id)}" title="Comparer ce dossier avec les offres actuelles">Comparer</a> · <button class="text-button" data-id="${esc(b.id)}">Ouvrir →</button></td></tr>`; }).join('');
+  $('#rows').innerHTML = shown.map(b => { const [label, cls] = STATE_LABEL[b.state]; return `<tr><td><strong>${esc(b.hotel)}</strong><small>${esc(b.reference)} · ${esc(b.supplier)}${b.supplierRef ? ' ' + esc(b.supplierRef) : ''}</small></td><td>${esc(b.leadGuest)}<small>${b.rooms.length} chambre(s) · ${b.rooms.reduce((s, r) => s + r.adults, 0)} adulte(s)${b.rooms.some(r => r.childrenAges.length) ? ' · ' + b.rooms.flatMap(r => r.childrenAges).length + ' enfant(s)' : ''}</small></td><td>${fmtDate(b.checkin)}<small>${nights(b.checkin, b.checkout)} nuit(s) · ${esc(MEALS[b.rooms[0]?.meal] ?? '')}</small></td><td>${money(b.purchase)}<small>${b.payment === 'prepaid' ? 'Prépayé' : b.payment === 'hotel' ? 'Payable à l’hôtel' : 'Paiement à vérifier'}</small></td><td>${b.nonRefundable ? '—' : fmtDeadline(b.deadline)}</td><td><span class="tag ${cls}">${label}</span></td><td><button class="text-button" data-compare="${esc(b.id)}" title="Comparer ce dossier avec les offres actuelles">Comparer</button> · <button class="text-button" data-id="${esc(b.id)}">Ouvrir →</button></td></tr>`; }).join('');
   $('#empty').hidden = !!shown.length;
   $$('[data-id]').forEach(btn => { btn.onclick = () => openForm(bookings.find(b => b.id === btn.dataset.id)); });
+  $$('[data-compare]').forEach(btn => { btn.onclick = () => openCompare(bookings.find(b => b.id === btn.dataset.compare)); });
 }
 async function load() {
   try { bookings = (await api('/api/bookings')).bookings; render(); }
@@ -88,7 +91,7 @@ function openModal(title, subtitle, body) {
   if (!$('#modal').open) $('#modal').showModal();
 }
 $('#close-modal').onclick = () => $('#modal').close();
-$('#modal').addEventListener('close', () => { if (fileUrl) { URL.revokeObjectURL(fileUrl); fileUrl = null; } });
+$('#modal').addEventListener('close', () => { $('#modal').classList.remove('wide-modal'); if (fileUrl) { URL.revokeObjectURL(fileUrl); fileUrl = null; } });
 
 const input = (name, label, value, { type = 'text', cls = '', attrs = '' } = {}) => `<label class="${cls}">${label}<input name="${name}" type="${type}" value="${esc(value ?? '')}" ${attrs}></label>`;
 const select = (name, label, options, value, cls = '') => `<label class="${cls}">${label}<select name="${name}">${options.map(([v, t]) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
@@ -141,7 +144,7 @@ function openForm(existing = null, draft = null, marks = new Set(), readInfo = '
   <div class="bk-section"><label class="wide">Notes internes<textarea name="notes" rows="2" maxlength="2000">${esc(b.notes ?? '')}</textarea></label></div>
   <label class="check" style="margin-top:18px"><input type="checkbox" name="validated">J’ai vérifié chaque information avec le voucher : hôtel, voyageurs, dates, chambres, prix et conditions d’annulation.</label>
   <p id="bk-error" class="error" role="alert"></p>
-  <div class="form-actions">${existing ? `<a class="secondary" href="/?dossier=${esc(existing.id)}">Comparer maintenant ↗</a>` : ''}${canDelete ? '<button type="button" id="delete" class="text-button">Supprimer ce dossier</button>' : ''}<button class="primary" type="submit">${existing ? 'Enregistrer les modifications' : 'Enregistrer le dossier'}</button></div></form>`);
+  <div class="form-actions">${existing ? '<button type="button" class="secondary" id="compare-now">Comparer maintenant</button>' : ''}${canDelete ? '<button type="button" id="delete" class="text-button">Supprimer ce dossier</button>' : ''}<button class="primary" type="submit">${existing ? 'Enregistrer les modifications' : 'Enregistrer le dossier'}</button></div></form>`);
 
   const form = $('#bk-form');
   const highlight = () => {
@@ -197,6 +200,7 @@ function openForm(existing = null, draft = null, marks = new Set(), readInfo = '
       $('#modal').close(); render(); toast('Dossier enregistré. Aucune action chez le fournisseur.');
     } catch (err) { $('#bk-error').textContent = ERRORS[err.message] ?? 'Enregistrement impossible (' + err.message + ').'; }
   };
+  if (existing) $('#compare-now').onclick = () => openCompare(existing);
   if (canDelete) $('#delete').onclick = async () => {
     if ($('#delete').dataset.confirm !== '1') { $('#delete').dataset.confirm = '1'; $('#delete').textContent = 'Confirmer la suppression du dossier (rien n’est annulé chez le fournisseur)'; return; }
     try { await api(`/api/bookings/${existing.id}`, { method: 'DELETE' }); bookings = bookings.filter(x => x.id !== existing.id); $('#modal').close(); render(); toast('Dossier supprimé. Aucune annulation fournisseur.'); }
@@ -208,6 +212,93 @@ function showPreview(f) {
   box.replaceChildren();
   if (f.type === 'application/pdf') { const a = document.createElement('a'); a.href = fileUrl; a.target = '_blank'; a.rel = 'noopener'; a.className = 'text-button'; a.textContent = `Ouvrir ${f.name} ↗`; box.append(a); }
   else { const im = document.createElement('img'); im.src = fileUrl; im.alt = 'Voucher'; im.className = 'upload-preview'; box.append(im); }
+}
+
+// ---- Comparaison d'un dossier, dans cette page (aucune action fournisseur) ----
+const NATIONALITIES = [['FR', 'France'], ['MA', 'Maroc'], ['BE', 'Belgique'], ['CH', 'Suisse'], ['GB', 'Royaume-Uni'], ['DZ', 'Algérie'], ['TN', 'Tunisie'], ['TR', 'Turquie'], ['SA', 'Arabie saoudite'], ['AE', 'Émirats arabes unis']];
+const RESIDENCES = [['FR', 'France'], ['MA', 'Maroc'], ['BE', 'Belgique'], ['CH', 'Suisse'], ['GB', 'Royaume-Uni']];
+const SUP_ERRORS = { CONFIGURATION_MISSING: 'Accès non configurés sur le serveur.', SUPPLIER_AUTH_FAILED: 'Accès refusé par le fournisseur.', SUPPLIER_UNREACHABLE: 'Fournisseur injoignable pour le moment.', QUOTA_EXCEEDED: 'Quota de requêtes du fournisseur atteint.', CHILD_AGE_OVER_12: 'Halalbooking accepte les enfants jusqu’à 12 ans : recherche refusée.', CRITERIA_INVALID: 'Critères refusés (dates passées ou séjour trop long).', NETWORK: 'Connexion impossible.' };
+const norm = v => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+export function nationalityCode(text) {
+  const n = norm(text); if (!n) return null;
+  let en = null; try { en = new Intl.DisplayNames(['en'], { type: 'region' }); } catch { /* noms français seulement */ }
+  return NATIONALITIES.find(([c, fr]) => norm(fr) === n || norm(en?.of(c)) === n || c.toLowerCase() === n)?.[0] ?? null;
+}
+const fmtUtc = t => t === Infinity ? 'jusqu’à l’arrivée' : 'jusqu’au ' + new Date(t).toLocaleString('fr-FR', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
+
+async function openCompare(b) {
+  const nat = nationalityCode(b.nationality);
+  const head = `<div class="dossier-banner"><div><strong>${esc(b.reference)} · ${esc(b.hotel)}</strong><p>Acheté ${esc(money(b.purchase))} chez ${esc(b.supplier)} · ${esc(MEALS[bookingMeal(b) ?? 'unknown'])} · ${b.nonRefundable ? 'non remboursable' : 'sans frais jusqu’au ' + esc(fmtDeadline(b.deadline))}</p><p>${fmtDate(b.checkin)} → ${fmtDate(b.checkout)} · ${b.rooms.map((r, i) => `ch. ${i + 1} : ${r.adults} adulte(s)${r.childrenAges.length ? ' + enfants ' + r.childrenAges.join(', ') + ' ans' : ''}`).join(' ; ')}</p></div></div>`;
+  openModal('Comparer le dossier', 'Offres actuelles des fournisseurs connectés · aucune réservation ni annulation.', `${head}
+    <div class="form-grid" style="margin:16px 0"><label>Pays de résidence du client<select id="cmp-country">${RESIDENCES.map(([c, l]) => `<option value="${c}">${l}</option>`).join('')}</select></label>
+    <label>Nationalité (TBO)<select id="cmp-nat">${nat ? '' : '<option value="">À choisir</option>'}${NATIONALITIES.map(([c, l]) => `<option value="${c}" ${c === nat ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <div class="wide" id="cmp-hotel"></div></div>
+    <p class="subtle">Pays de résidence non enregistré dans le dossier : vérifiez-le avant de lancer.${nat ? '' : ` Nationalité « ${esc(b.nationality ?? 'non renseignée')} » non reconnue.`}</p>
+    <div class="form-actions" style="margin-top:8px"><button type="button" class="primary" id="cmp-run" ${b.hbPlaceId ? '' : 'disabled'}>Lancer la comparaison</button></div>
+    <p id="cmp-status" class="subtle" role="status"></p><div class="cmp-grid" id="cmp-results"></div>`);
+  $('#modal').classList.add('wide-modal');
+  const hotelBox = $('#cmp-hotel');
+  const drawHotel = () => {
+    if (b.hbPlaceId) { hotelBox.innerHTML = `<p class="subtle">Hôtel du catalogue rattaché au dossier (n° ${esc(b.hbPlaceId)}). <button type="button" class="text-button" id="cmp-relink">Changer</button></p>`; $('#cmp-relink').onclick = () => { b = { ...b, hbPlaceId: null }; $('#cmp-run').disabled = true; drawHotel(); }; return; }
+    hotelBox.innerHTML = `<label>Hôtel correspondant dans le catalogue (choisi une fois, rattaché au dossier)<input id="cmp-q" value="${esc(b.hotel)}" autocomplete="off"></label><ul class="place-suggest cmp-suggest" id="cmp-sugg"></ul>`;
+    let t = null;
+    const look = () => { clearTimeout(t); t = setTimeout(async () => {
+      const q = $('#cmp-q').value.trim(); if (q.length < 2) return;
+      const d = await api('/api/places/suggest?q=' + encodeURIComponent(q)).catch(() => ({ hotels: [] }));
+      $('#cmp-sugg').innerHTML = (d.hotels ?? []).map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc([h.city, h.country].filter(Boolean).join(', '))}</small></li>`).join('') || '<li class="group">Aucun hôtel trouvé : essayez le début du nom.</li>';
+      $('#cmp-sugg').querySelectorAll('[data-h]').forEach(li => { li.onclick = async () => {
+        const h = d.hotels[Number(li.dataset.h)];
+        try { const r = await api(`/api/bookings/${b.id}/hotel`, { method: 'POST', body: JSON.stringify({ hbPlaceId: h.id }) }); b = r.booking; bookings = bookings.map(x => x.id === b.id ? b : x); drawHotel(); $('#cmp-run').disabled = false; runCompare(b); }
+        catch (e) { $('#cmp-status').textContent = 'Rattachement impossible (' + e.message + ').'; }
+      }; });
+    }, 200); };
+    $('#cmp-q').oninput = look; look();
+  };
+  drawHotel();
+  $('#cmp-run').onclick = () => runCompare(b);
+  if (b.hbPlaceId) runCompare(b);
+}
+
+async function runCompare(b) {
+  const nationality = $('#cmp-nat').value;
+  if (!nationality) { $('#cmp-status').textContent = 'Choisissez la nationalité (demandée par TBO).'; return; }
+  const q = { hotelId: b.hbPlaceId, checkin: b.checkin, checkout: b.checkout, rooms: b.rooms.map(r => ({ adults: r.adults, children: [...r.childrenAges] })), country: $('#cmp-country').value };
+  $('#cmp-run').disabled = true; $('#cmp-status').textContent = 'Recherche en cours auprès des fournisseurs…';
+  const cards = { halalbooking: { name: 'Halalbooking', state: 'loading' }, tbo: { name: 'TBO', state: 'loading' }, ratehawk: { name: 'RateHawk', state: 'off' }, bedsonline: { name: 'Bedsonline', state: 'loading' } };
+  const draw = () => { $('#cmp-results').innerHTML = Object.entries(cards).map(([id, c]) => cmpCard(id, c, b)).join(''); };
+  draw();
+  const post = (url, body) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async r => { const d = await r.json().catch(() => ({})); return r.ok ? { d } : { error: d.detail || d.error || 'SUPPLIER_ERROR' }; }).catch(() => ({ error: 'NETWORK' }));
+  const set = (id, make) => r => { cards[id] = { ...cards[id], ...(r.error ? { state: 'error', error: r.error } : make(r.d)) }; draw(); };
+  await Promise.all([
+    post('/api/halalbooking/search', q).then(set('halalbooking', d => ({ state: 'ok', panel: hbPanel(d, {}) }))),
+    post('/api/tbo/search', { ...q, nationality }).then(set('tbo', d => d.status === 'not_mapped' ? { state: 'unmapped' } : d.status === 'currency_not_eur' ? { state: 'error', error: 'Devise ' + d.currency + ' (euro imposé)' } : { state: 'ok', panel: tboPanel(d, {}) })),
+    post('/api/bedsonline/search', q).then(set('bedsonline', d => d.status === 'not_mapped' ? { state: 'unmapped' } : { state: 'ok', panel: bedsPanel(d, {}, q.rooms.length), env: d.environment })),
+  ]);
+  $('#cmp-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR')} · prix à reconfirmer chez le fournisseur avant toute décision.`;
+  $('#cmp-run').disabled = false;
+}
+
+function cmpCard(id, c, b) {
+  const shell = (top, body, cls = '') => `<article class="cmp-card ${cls}"><div class="cmp-top">${esc(top)}</div><h3>${esc(c.name)}</h3>${body}</article>`;
+  if (c.state === 'off') return shell('NON CONNECTÉ', '<p class="subtle">Accès API en attente.</p>', 'off');
+  if (c.state === 'loading') return shell('RECHERCHE…', '<p class="subtle">Recherche en cours…</p>');
+  if (c.state === 'unmapped') return shell('HÔTEL NON ASSOCIÉ', `<p class="subtle">Hôtel pas encore associé chez ${esc(c.name)}. Un administrateur peut l’associer depuis le comparateur.</p><a class="text-button" href="/?dossier=${esc(b.id)}" target="_blank" rel="noopener">Ouvrir dans le comparateur ↗</a>`);
+  if (c.state === 'error') return shell('ERREUR FOURNISSEUR', `<p class="subtle">${esc(SUP_ERRORS[c.error] ?? c.error)} Ce n’est pas une absence de chambres ; aucun tarif fictif ne la remplace.</p>`);
+  const p = c.panel;
+  if (!p?.received) return shell('AUCUNE OFFRE', '<p class="subtle">Aucune disponibilité retournée pour ces critères.</p>');
+  if (typeof p.total !== 'number') return shell('INCOMPLET', '<p class="subtle">Pas d’offre couvrant toutes les chambres : aucun total partiel.</p>');
+  const a = assessPanel(p, b);
+  const amount = a.diff == null ? '' : `${a.diff < 0 ? '−' : '+'}${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: b.purchase.currency }).format(Math.abs(a.diff))}`;
+  const verdict = a.status === 'gain' ? `Gain potentiel ${amount}` : a.status === 'none' ? `Pas moins cher (${amount})` : `À vérifier${amount ? ' · écart ' + amount : ''}`;
+  const rooms = p.pick.flatMap(o => o.roomNames ?? [o.room ?? o.roomName ?? 'Chambre non renseignée']);
+  const free = p.pick.map(o => freeUntilOf(id, o));
+  const cancel = free.some(t => t == null) ? 'Non remboursable ou conditions à vérifier' : 'Sans frais ' + fmtUtc(Math.min(...free));
+  const top = id === 'tbo' ? 'STAGING · TEST' : id === 'bedsonline' && c.env !== 'production' ? 'TEST · ÉVALUATION' : 'OFFRES RÉELLES';
+  const label = id === 'tbo' ? 'Montant TBO (net à confirmer)' : p.netConfirmed ? 'Net agence' : 'Net estimé';
+  return shell(top, `<div class="cmp-price">${esc(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: p.currency ?? 'EUR' }).format(p.total))}</div><p class="subtle">${label} · total séjour · ${b.rooms.length} chambre(s)</p>
+    <p><strong>${rooms.map(esc).join('<br>')}</strong></p><p>${esc(MEALS[p.mealCode] ?? 'Pension non reconnue')} · ${esc(cancel)}</p>
+    <div class="dossier-assess ${a.status}"><strong>${esc(verdict)}</strong>${a.status === 'gain' ? '<p>Chambre à comparer avec le dossier (« ' + esc(b.rooms.map(r => r.type).join(' / ')) + ' »).</p>' : ''}${a.reasons.length ? `<p>${esc(a.reasons.join(' · '))}</p>` : ''}</div>`, a.status);
 }
 
 $('#add').onclick = () => openForm();
