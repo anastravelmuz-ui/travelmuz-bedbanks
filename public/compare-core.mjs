@@ -67,6 +67,25 @@ export function bedsPanel(result, f = {}, rooms = 1, now = Date.now()) {
   };
 }
 
+/** État d'annulation ETG (dates en UTC selon la documentation). */
+export function rhCancellationState(o, now = Date.now()) {
+  const t = o.freeCancellationBefore ? Date.parse(o.freeCancellationBefore) : null;
+  if (t != null && Number.isFinite(t)) return now < t ? 'free' : 'fees';
+  if (!o.cancellation?.length) return 'unknown';
+  return o.cancellation.some(p => typeof p.amount === 'number' && typeof o.net === 'number' && p.amount >= o.net * 0.99) ? 'nonref' : 'fees';
+}
+
+/** RateHawk : un tarif ETG couvre l'ensemble des chambres demandées ; coût = net agence (commission_info.show.amount_net). */
+export function rhPanel(result, f = {}, now = Date.now()) {
+  if (!result?.offers) return null;
+  const offers = result.offers.map(o => ({ ...o, provider: 'ratehawk', cost: o.net, state: rhCancellationState(o, now) }))
+    .filter(o => (!f.meal || o.mealCode === f.meal) && (!f.refund || o.state === f.refund) && passBudget(o.cost, f.budget))
+    .sort(order(f.sort));
+  const pick = offers.filter(o => typeof o.cost === 'number').sort((a, b) => a.cost - b.cost)[0] ?? null;
+  return { provider: 'ratehawk', offers, pick: pick ? [pick] : null, received: result.offers.length, currency: pick?.currency ?? null,
+    total: pick?.cost ?? null, netConfirmed: !!pick?.netFromSupplier, mealCode: pick?.mealCode ?? null, state: pick?.state ?? 'unknown' };
+}
+
 /** Désigne le prix affiché le plus bas et dit s'il est strictement comparable, avec les raisons sinon. */
 export function comparePanels(panels) {
   const priced = panels.filter(p => p && typeof p.total === 'number');

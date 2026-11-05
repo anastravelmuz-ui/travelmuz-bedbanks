@@ -1,6 +1,6 @@
 // Correspondance des hôtels entre fournisseurs : chaque lien est validé par un administrateur (jamais automatique).
 // Clé interne actuelle : identifiant Halalbooking de l'hôtel (place id).
-export const PROVIDERS = ['tbo', 'hotelbeds'];
+export const PROVIDERS = ['tbo', 'hotelbeds', 'ratehawk'];
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS hotel_map (hb_place_id INTEGER NOT NULL, provider TEXT NOT NULL, provider_code TEXT NOT NULL, provider_name TEXT, provider_address TEXT, validated_by TEXT NOT NULL, validated_at INTEGER NOT NULL, PRIMARY KEY (hb_place_id, provider))`,
 ];

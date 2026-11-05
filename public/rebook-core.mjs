@@ -21,6 +21,9 @@ export function freeUntilOf(provider, o) {
     if (!starts.length || starts.some(t => t == null)) return null;
     return Math.min(...starts) - TBO_SLACK;
   }
+  if (provider === 'ratehawk') {
+    const t = o.freeCancellationBefore ? Date.parse(o.freeCancellationBefore) : NaN; return Number.isFinite(t) ? t : null;
+  }
   if (provider === 'bedsonline') {
     if (o.rateClass === 'NRF') return null;
     const iso = hbedsFreeUntil(o); return iso ? Date.parse(iso) : null;

@@ -1,7 +1,7 @@
 // Comparateur réel multi-fournisseurs : présentation en cartouches de la maquette ChatGPT, données Halalbooking et TBO.
 import { filterOffers, cancellationState, cutoffLabel } from './live-core.mjs';
 import { tboCancellationState, parseTboDate } from './tbo-core.mjs';
-import { hbPanel, tboPanel, bedsPanel, comparePanels } from './compare-core.mjs';
+import { hbPanel, tboPanel, bedsPanel, rhPanel, rhCancellationState, comparePanels } from './compare-core.mjs';
 import { hbedsFreeUntil } from './hotelbeds-core.mjs';
 import { MEAL_LABELS } from './meal-core.mjs';
 import { assessPanel, bookingMeal } from './rebook-core.mjs';
@@ -15,6 +15,7 @@ const nightsBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864
 let snapshot = null, loading = false, hbState = null; // hbState : null | 'loading' | code d'erreur
 let tbo = null; // { status, offers, currency…, nationality } ou { error }
 let beds = null; // Bedsonline : même forme
+let rh = null; // RateHawk (ETG) : même forme
 const moneyIn = (n, cur) => { try { return typeof n === 'number' && Number.isFinite(n) ? new Intl.NumberFormat('fr-FR', { style: 'currency', currency: cur || 'EUR' }).format(n) : 'Montant non renseigné'; } catch { return `${n} ${cur ?? ''}`; } };
 let rooms = [{ adults: 2, children: [] }];
 let draft = null;
@@ -178,7 +179,7 @@ const mealLine = (label, code) => `<p>♧ ${esc(label ?? (code ? MEAL_LABELS[cod
 
 function panelBody(id) {
   const nRooms = rooms.length;
-  if (id === 'ratehawk') return { top: 'NON CONNECTÉ', off: true, html: '<div class="state">Accès API en attente. Aucun tarif n’est affiché tant que la connexion n’est pas établie.</div>' };
+  if (id === 'ratehawk') return rhBody(nRooms);
   if (id === 'bedsonline') return bedsBody(nRooms);
   if (id === 'halalbooking') {
     if (!hbState && !snapshot) return { top: 'OFFRES RÉELLES', html: '<div class="state">Prêt à rechercher.</div>' };
@@ -213,16 +214,17 @@ function panelBody(id) {
 let isAdmin = false;
 fetch('/api/auth/me').then(r => r.json()).then(d => { isAdmin = d.user?.role === 'admin'; render(); }).catch(() => {});
 const mapLink = (provider) => isAdmin
-  ? `<button type="button" class="btn-match" data-match="${provider}">Trouver l’hôtel ${provider === 'tbo' ? 'TBO' : 'Bedsonline'} →</button>`
+  ? `<button type="button" class="btn-match" data-match="${provider}">Trouver l’hôtel ${{ tbo: 'TBO', ratehawk: 'RateHawk' }[provider] ?? 'Bedsonline'} →</button>`
   : 'Un administrateur peut l’associer.';
 
 // ---- Suggestions de correspondance (administrateurs) : nom + GPS, validation en un clic ----
 async function openMatch(provider) {
-  const label = provider === 'tbo' ? 'TBO' : 'Bedsonline';
+  const label = { tbo: 'TBO', ratehawk: 'RateHawk' }[provider] ?? 'Bedsonline';
+  const key = { tbo: 'tbo', ratehawk: 'ratehawk' }[provider] ?? 'hotelbeds';
   $('#offers-title').innerHTML = `<h2>Associer à ${label}</h2><p>${esc(place.name)} · suggestions par nom et position GPS · aucune association sans votre validation</p>`;
   $('#offers-body').innerHTML = '<div class="empty">Recherche des correspondances… (la première fois pour une ville, le catalogue fournisseur est téléchargé puis gardé 15 jours)</div>';
   $('#offers-modal').showModal();
-  const r = await fetch(`/api/admin/match?hotel=${encodeURIComponent(place.id)}&provider=${provider === 'tbo' ? 'tbo' : 'hotelbeds'}`);
+  const r = await fetch(`/api/admin/match?hotel=${encodeURIComponent(place.id)}&provider=${key}`);
   const d = await r.json().catch(() => ({}));
   const why = { CITY_NOT_FOUND: `Ville « ${esc(d.source?.city ?? '?')} » introuvable chez ${label} : utilisez l’association manuelle dans l’Administration.`, COUNTRY_UNKNOWN: 'Pays non reconnu : association manuelle nécessaire.', QUOTA_EXCEEDED: 'Quota Bedsonline atteint pour aujourd’hui.', CONFIGURATION_MISSING: `Accès ${label} non configurés.` };
   if (!r.ok) { $('#offers-body').innerHTML = `<div class="empty">${why[d.error] ?? 'Suggestions indisponibles pour le moment.'} <a href="/admin.html?hotel=${encodeURIComponent(place.id)}#place-card">Association manuelle</a></div>`; return; }
@@ -238,7 +240,7 @@ async function openMatch(provider) {
     const c = d.candidates.find(x => x.code === b.dataset.assoc);
     if (!confirm(`Associer « ${place.name} » au code ${label} ${c.code} :\n${c.name}\n${c.address ?? ''}\n${fmtD(c.distanceM)}\n\nConfirmez-vous qu’il s’agit du même établissement ?`)) return;
     b.disabled = true;
-    const x = await fetch('/api/admin/mappings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', hbPlaceId: place.id, provider: provider === 'tbo' ? 'tbo' : 'hotelbeds', code: c.code, name: c.name, address: c.address }) });
+    const x = await fetch('/api/admin/mappings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', hbPlaceId: place.id, provider: key, code: c.code, name: c.name, address: c.address }) });
     if (!x.ok) { b.disabled = false; alert('Échec de l’enregistrement.'); return; }
     $('#offers-modal').close();
     rerunProvider(provider);
@@ -246,15 +248,53 @@ async function openMatch(provider) {
 }
 async function rerunProvider(provider) {
   const q = criteria(), nationality = $('#live-nationality').value;
-  const url = provider === 'tbo' ? '/api/tbo/search' : '/api/bedsonline/search';
-  if (provider === 'tbo') tbo = { loading: true }; else beds = { loading: true };
+  const url = { tbo: '/api/tbo/search', ratehawk: '/api/ratehawk/search' }[provider] ?? '/api/bedsonline/search';
+  const withNat = provider === 'tbo' || provider === 'ratehawk';
+  if (provider === 'tbo') tbo = { loading: true }; else if (provider === 'ratehawk') rh = { loading: true }; else beds = { loading: true };
   render();
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(provider === 'tbo' ? { ...q, nationality } : q) });
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withNat ? { ...q, nationality } : q) });
   const d = await r.json().catch(() => ({}));
   const v = r.ok ? d : { error: d.detail || d.error || 'SUPPLIER_ERROR' };
-  if (provider === 'tbo') tbo = v; else beds = v;
+  if (provider === 'tbo') tbo = v; else if (provider === 'ratehawk') rh = v; else beds = v;
   render();
 }
+// ---- RateHawk (ETG) ----
+const RH_ERRORS = {
+  CONFIGURATION_MISSING: 'Les accès RateHawk (RATEHAWK_KEY_ID, RATEHAWK_API_KEY) ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
+  SUPPLIER_AUTH_FAILED: 'RateHawk a refusé l’accès : clé ou environnement (bac à sable / production) à vérifier. Ce n’est pas une absence de chambres.',
+  QUOTA_EXCEEDED: 'Limite de requêtes RateHawk atteinte : réessayez dans une minute. Ce n’est pas une absence de chambres.',
+  SUPPLIER_UNREACHABLE: 'RateHawk est injoignable pour le moment. Ce n’est pas une absence de chambres.',
+  SUPPLIER_ERROR: 'RateHawk a renvoyé une erreur. Ce n’est pas une absence de chambres. Aucun tarif fictif ne la remplace.',
+};
+const rhTop = () => (rh?.environment === 'production' ? 'OFFRES RÉELLES' : 'BAC À SABLE · DONNÉES DE TEST');
+const fmtUtcDate = iso => new Date(iso).toLocaleString('fr-FR', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
+function rhCondition(o) {
+  const st = rhCancellationState(o);
+  return `<p class="condition">${labels[st]}${st === 'free' ? ' jusqu’au ' + esc(fmtUtcDate(o.freeCancellationBefore)) : ''}</p>`;
+}
+function rhBody(nRooms) {
+  if (!rh) return { top: rhTop(), html: '<div class="state">Prêt à rechercher.</div>' };
+  if (rh.loading) return { top: rhTop(), html: '<div class="state">Recherche en cours…</div>' };
+  if (rh.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(RH_ERRORS[rh.error] ?? ERRORS[rh.error] ?? RH_ERRORS.SUPPLIER_ERROR)}</div>` };
+  if (rh.status === 'not_mapped') return { top: rhTop(), html: `<div class="state">Hôtel pas encore associé à un identifiant RateHawk. ${mapLink('ratehawk')}</div>` };
+  if (rh.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">RateHawk renvoie des tarifs en ${esc(rh.currency)} : l’euro est imposé, ${plural(rh.hidden ?? 0, 'offre')} masquée(s), sans conversion.</div>` };
+  const p = panels.ratehawk;
+  if (!p?.received) return { top: rhTop(), html: '<div class="state">RateHawk n’a retourné aucune disponibilité pour ces critères.</div>' };
+  if (!p.pick) return { top: rhTop(), count: 0, html: '<div class="state">Aucune offre ne correspond à ces filtres.</div>' };
+  const o = p.pick[0];
+  const amount = p.currency === 'EUR' ? money(p.total).replace('€', '<small>€</small>') : esc(moneyIn(p.total, p.currency));
+  return { top: rhTop(), count: p.offers.length, html: `<div class="price">${amount}</div>
+    <div class="price-label">${p.netConfirmed ? 'Net agence' : 'Montant à payer'} · total séjour · ${plural(nRooms, 'chambre')}</div>${typeof o.gross === 'number' && o.gross !== o.net ? `<div class="secondary-amount">Prix brut ${esc(moneyIn(o.gross, o.currency))}</div>` : ''}
+    <div class="room-info"><strong>${esc(o.roomName ?? 'Chambre non renseignée')}</strong>${mealLine(o.mealCode ? null : o.meal, o.mealCode)}${rhCondition(o)}<p>${o.taxesAtHotel.length ? `<span class="tbo-warn">À payer sur place : ${o.taxesAtHotel.map(t => `${esc(t.name ?? 'taxe')} ${esc(moneyIn(t.amount, t.currency))}`).join(', ')}</span>` : 'Aucune taxe à payer sur place indiquée'}</p></div>` };
+}
+function rhCard(o) {
+  return `<article class="live-card"><div><span class="tag">RateHawk · ${rh?.environment === 'production' ? 'production' : 'bac à sable'}</span><h3>${esc(o.roomName ?? 'Chambre non renseignée')}</h3>
+    <p>${esc(MEAL_LABELS[o.mealCode] ?? o.meal ?? 'Pension non renseignée')}</p>${rhCondition(o)}
+    ${o.taxesAtHotel.length ? `<p class="tbo-warn">À payer sur place : ${o.taxesAtHotel.map(t => `${esc(t.name ?? 'taxe')} ${esc(moneyIn(t.amount, t.currency))}`).join(' · ')}</p>` : ''}
+    ${o.cancellation.length ? `<details><summary>Pénalités d’annulation (UTC)</summary><ul>${o.cancellation.map(c => `<li>${c.start ? 'du ' + esc(fmtUtcDate(c.start)) : 'dès la réservation'}${c.end ? ' au ' + esc(fmtUtcDate(c.end)) : ''} : ${esc(moneyIn(c.amount, o.currency))}</li>`).join('')}</ul><p>Aucune équivalence de chambre avec Halalbooking n’est présumée.</p></details>` : ''}</div>
+    <div class="live-price">${esc(moneyIn(o.net, o.currency))}<small>${o.netFromSupplier ? 'Net agence' : 'Montant à payer'} · total séjour, toutes chambres</small>${typeof o.gross === 'number' && o.gross !== o.net ? `<small>Prix brut ${esc(moneyIn(o.gross, o.currency))}</small>` : ''}</div></article>`;
+}
+
 // ---- Bedsonline / Hotelbeds ----
 const BEDS_ERRORS = {
   CONFIGURATION_MISSING: 'Les accès Bedsonline (HOTELBEDS_API_KEY, HOTELBEDS_SECRET) ne sont pas configurés sur le serveur. Ce n’est pas une absence de chambres.',
@@ -302,8 +342,8 @@ function bedsCard(o) {
 }
 function render() {
   const f = filters();
-  panels = { halalbooking: snapshot ? hbPanel(snapshot, f) : null, tbo: tbo?.offers ? tboPanel(tbo, f) : null, bedsonline: beds?.offers ? bedsPanel(beds, f, rooms.length) : null };
-  const cmp = comparePanels([panels.halalbooking, panels.tbo, panels.bedsonline]);
+  panels = { halalbooking: snapshot ? hbPanel(snapshot, f) : null, tbo: tbo?.offers ? tboPanel(tbo, f) : null, ratehawk: rh?.offers ? rhPanel(rh, f) : null, bedsonline: beds?.offers ? bedsPanel(beds, f, rooms.length) : null };
+  const cmp = comparePanels([panels.halalbooking, panels.tbo, panels.ratehawk, panels.bedsonline]);
   const insight = $('#result-insight');
   if (cmp.lowest) {
     const name = PROVIDERS.find(p => p.id === cmp.lowest.provider).name;
@@ -331,8 +371,9 @@ function openOffers(id) {
   const p = panels[id];
   if (!p?.offers?.length) return;
   const hotel = $('#results-title').textContent;
-  $('#offers-title').innerHTML = `<h2>${{ tbo: 'TBO', bedsonline: 'Bedsonline' }[id] ?? 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : id === 'bedsonline' ? (beds?.environment === 'production' ? 'Offres réelles' : 'Données d’évaluation (test)') : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
+  $('#offers-title').innerHTML = `<h2>${{ tbo: 'TBO', bedsonline: 'Bedsonline', ratehawk: 'RateHawk' }[id] ?? 'Halalbooking'}</h2><p>${id === 'tbo' ? 'Données de test (staging)' : id === 'ratehawk' ? (rh?.environment === 'production' ? 'Offres réelles' : 'Bac à sable (test)') : id === 'bedsonline' ? (beds?.environment === 'production' ? 'Offres réelles' : 'Données d’évaluation (test)') : 'Offres réelles'} · ${esc(hotel)} · ${plural(p.offers.length, 'offre')} · filtres appliqués</p>`;
   if (id === 'tbo') $('#offers-body').innerHTML = p.offers.map(tboCard).join('');
+  else if (id === 'ratehawk') $('#offers-body').innerHTML = p.offers.map(rhCard).join('');
   else if (id === 'bedsonline') {
     $('#offers-body').innerHTML = p.offers.map(bedsCard).join('');
     $$('#offers-body .rate-comments button').forEach(btn => btn.onclick = async () => {
@@ -384,7 +425,7 @@ $('#live-search').onsubmit = async e => {
 async function searchHotel() {
   loading = true; showMode('hotel');
   const q = criteria(), nationality = $('#live-nationality').value;
-  snapshot = null; hbState = 'loading'; tbo = { loading: true }; beds = { loading: true };
+  snapshot = null; hbState = 'loading'; tbo = { loading: true }; beds = { loading: true }; rh = { loading: true };
   $('#pending').hidden = true; $('#live-error').textContent = '';
   $('#live-status').textContent = 'Recherche en cours auprès des fournisseurs connectés…'; $('#live-submit').disabled = true;
   const n = nightsBetween(q.checkin, q.checkout);
@@ -407,7 +448,8 @@ async function searchHotel() {
     render();
   });
   const bedsRun = post('/api/bedsonline/search', q).then(r => { beds = r.ok ? r.d : { error: r.error }; render(); });
-  await Promise.all([hbRun, tboRun, bedsRun]);
+  const rhRun = post('/api/ratehawk/search', { ...q, nationality }).then(r => { rh = r.ok ? r.d : { error: r.error }; render(); });
+  await Promise.all([hbRun, tboRun, bedsRun, rhRun]);
   $('#live-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Casablanca' })} (heure Maroc) · prix à reconfirmer chez le fournisseur.`;
   clearFilters(); markPending();
   loading = false; $('#live-submit').disabled = false;
@@ -499,7 +541,7 @@ $('#live-place').addEventListener('blur', () => setTimeout(hideSuggest, 120));
 
 const CRITERIA_CODES = ['LOCATION_INVALID', 'CRITERIA_INVALID', 'ROOMS_INVALID', 'ADULTS_INVALID', 'CHILDREN_INVALID', 'CHILD_AGE_INVALID', 'CHILD_AGE_OVER_12', 'NATIONALITY_INVALID'];
 guestSummary(); markPending(); render();
-setInterval(() => { if (snapshot || tbo?.offers || beds?.offers) render(); }, 60000);
+setInterval(() => { if (snapshot || tbo?.offers || beds?.offers || rh?.offers) render(); }, 60000);
 
 // ---- Comparaison d'un dossier de réservation (/?dossier=<id>) : critères repris du dossier, aucune action fournisseur ----
 const fmtDl = d => d ? `${new Date(d.slice(0, 10) + 'T00:00:00Z').toLocaleDateString('fr-FR', { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' })} ${d.slice(11, 16)} (UTC${d.slice(19)})` : '—';

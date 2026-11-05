@@ -14,6 +14,7 @@ import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hot
 const ALLOW_NON_EUR = true;
 import { createD1MapStore, validateMapping } from '../server/hotel-map.mjs';
 import { validateBooking, createBookingStore } from '../server/bookings.mjs';
+import { ratehawkConfig, ratehawkSuggest, ratehawkHotelInfo, searchRatehawk, RATEHAWK_ERRORS } from '../server/ratehawk.mjs';
 
 export const FIRST_ADMIN_EMAIL = 'anas@travelmuz.fr'; // D-015
 
@@ -66,7 +67,7 @@ async function readJson(request, max = 4096) {
   return JSON.parse(raw);
 }
 const sameOrigin = request => request.headers.get('origin') === new URL(request.url).origin;
-const supplierError = e => { const m = e instanceof Error ? e.message : ''; return TBO_ERRORS.includes(m) || HOTELBEDS_ERRORS.includes(m) ? m : 'SUPPLIER_ERROR'; };
+const supplierError = e => { const m = e instanceof Error ? e.message : ''; return TBO_ERRORS.includes(m) || HOTELBEDS_ERRORS.includes(m) || RATEHAWK_ERRORS.includes(m) ? m : 'SUPPLIER_ERROR'; };
 
 // Les établissements vus en recherche enrichissent le catalogue (jamais bloquant).
 async function rememberPlaces(env, places) {
@@ -123,7 +124,7 @@ async function matchSuggest(env, user, url) {
   if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
   if (user.role !== 'admin') return json({ error: 'ADMIN_REQUIRED' }, 403);
   const id = Number(url.searchParams.get('hotel')), provider = url.searchParams.get('provider');
-  if (!Number.isSafeInteger(id) || id < 1 || !['tbo', 'hotelbeds'].includes(provider) || !env.DB) return json({ error: 'INVALID_CRITERIA' }, 400);
+  if (!Number.isSafeInteger(id) || id < 1 || !['tbo', 'hotelbeds', 'ratehawk'].includes(provider) || !env.DB) return json({ error: 'INVALID_CRITERIA' }, 400);
   const catalog = createCatalog(env.DB);
   let source = await catalog.get(id).catch(() => null);
   // Contenu anglais rechargé si coordonnées ou pays manquent / ne sont pas reconnus (ex. fiche créée depuis une recherche en français).
@@ -136,7 +137,21 @@ async function matchSuggest(env, user, url) {
   try {
     // Plusieurs villes fournisseur explorées : un même quartier est souvent classé sous une autre ville (ex. Kuta / Seminyak, Bali).
     let explored, list = []; const skipped = [];
-    if (provider === 'tbo') {
+    if (provider === 'ratehawk') {
+      // ETG : pas de liste d'hôtels par ville ; suggestions par nom (multicomplete, 5 au plus), puis fiche hôtel pour l'adresse et le GPS.
+      const cfg = ratehawkConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+      const queries = [...new Set([source.name, `${source.name} ${source.city ?? ''}`.trim()])];
+      const refs = [];
+      for (const q of queries) for (const h of await ratehawkSuggest(q, cfg)) if (!refs.some(r => (r.hid ?? r.id) === (h.hid ?? h.id))) refs.push(h);
+      explored = [{ code: 'multicomplete', name: 'recherche par nom ETG' }];
+      for (const ref of refs.slice(0, 8)) {
+        try {
+          const info = (await cachedList(env, `rh-info:${ref.hid ?? ref.id}`, () => ratehawkHotelInfo(ref, cfg))).value;
+          list.push({ code: String(info.hid ?? ref.hid ?? ''), name: info.name ?? ref.name, address: [info.address, info.city].filter(Boolean).join(', ') || null, rating: info.stars ? info.stars + '★' : null, lat: info.lat, lng: info.lng, city: info.city ?? '' });
+        } catch (e) { if (e instanceof Error && ['SUPPLIER_AUTH_FAILED', 'QUOTA_EXCEEDED'].includes(e.message)) throw e; skipped.push(ref.name ?? String(ref.hid)); }
+      }
+      list = list.filter(h => /^\d{1,12}$/.test(h.code));
+    } else if (provider === 'tbo') {
       const cfg = tboConfig(env); if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
       const cities = (await cachedList(env, `tbo-cities:${cc}`, () => tboCities(cc, cfg))).value;
       explored = pickCities(source, cities, 10);
@@ -248,6 +263,24 @@ async function bedsonlineSearch(request, env, user) {
       if (details) r.offers = attachHotelbedsDetails(r.offers, details);
     }
     return json({ ...r, criteria, mapping: { code: mapping.code, name: mapping.name } });
+  } catch (e) { return json({ error: supplierError(e) }, 502); }
+}
+
+async function ratehawkSearch(request, env, user) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (request.method !== 'POST') return json({ error: 'NOT_FOUND' }, 404);
+  if (!sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
+  let body, criteria;
+  try { body = await readJson(request); criteria = validateSearch(body); }
+  catch (e) { const detail = e instanceof Error && CRITERIA_ERRORS.includes(e.message) ? e.message : 'CRITERIA_INVALID'; return json({ error: 'INVALID_CRITERIA', detail }, 400); }
+  if (typeof body.nationality !== 'string' || !/^[A-Z]{2}$/.test(body.nationality)) return json({ error: 'INVALID_CRITERIA', detail: 'NATIONALITY_INVALID' }, 400);
+  const cfg = ratehawkConfig(env);
+  if (!cfg) return json({ error: 'CONFIGURATION_MISSING' }, 502);
+  const mapping = env.DB ? await createD1MapStore(env.DB).get(criteria.hotelId, 'ratehawk') : null;
+  if (!mapping) return json({ provider: 'RateHawk', status: 'not_mapped', offers: [], environment: cfg.environment, observedAt: new Date().toISOString() });
+  try {
+    const r = await searchRatehawk(criteria, mapping.code, body.nationality, cfg, fetch, { allowNonEur: ALLOW_NON_EUR });
+    return json({ ...r, criteria, nationality: body.nationality, observedAt: new Date().toISOString(), mapping: { code: mapping.code, name: mapping.name } });
   } catch (e) { return json({ error: supplierError(e) }, 502); }
 }
 
@@ -371,6 +404,7 @@ export async function route(request, env) {
   if (path === '/api/admin/match') return secure(await matchSuggest(env, user, url), { noStore: true });
   if (path === '/api/bookings' || path.startsWith('/api/bookings/')) return secure(await bookings(request, env, user, path), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
+  if (path === '/api/ratehawk/search') return secure(await ratehawkSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/ratecomments') return secure(await bedsonlineRateComments(request, env, user, url), { noStore: true });
   if (path === '/api/admin/mappings' || path.startsWith('/api/admin/tbo/') || path.startsWith('/api/admin/hotelbeds/')) return secure(await adminTbo(request, env, user, path, url), { noStore: true });

@@ -1,6 +1,6 @@
 // Module Réservations : liste partagée des dossiers, ajout depuis un voucher lu dans le navigateur, validation humaine.
 import { parseVoucher } from './voucher-core.mjs';
-import { hbPanel, tboPanel, bedsPanel } from './compare-core.mjs';
+import { hbPanel, tboPanel, bedsPanel, rhPanel } from './compare-core.mjs';
 import { assessPanel, freeUntilOf, bookingMeal } from './rebook-core.mjs';
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -283,7 +283,7 @@ async function runCompare(b) {
   if (!nationality) { $('#cmp-status').textContent = 'Choisissez la nationalité (demandée par TBO).'; return; }
   const q = { hotelId: b.hbPlaceId, checkin: b.checkin, checkout: b.checkout, rooms: b.rooms.map(r => ({ adults: r.adults, children: [...r.childrenAges] })), country: $('#cmp-country').value };
   $('#cmp-run').disabled = true; $('#cmp-status').textContent = 'Recherche en cours auprès des fournisseurs…';
-  const cards = { halalbooking: { name: 'Halalbooking', state: 'loading' }, tbo: { name: 'TBO', state: 'loading' }, ratehawk: { name: 'RateHawk', state: 'off' }, bedsonline: { name: 'Bedsonline', state: 'loading' } };
+  const cards = { halalbooking: { name: 'Halalbooking', state: 'loading' }, tbo: { name: 'TBO', state: 'loading' }, ratehawk: { name: 'RateHawk', state: 'loading' }, bedsonline: { name: 'Bedsonline', state: 'loading' } };
   const draw = () => { $('#cmp-results').innerHTML = Object.entries(cards).map(([id, c]) => cmpCard(id, c, b)).join(''); };
   draw();
   const post = (url, body) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -292,6 +292,7 @@ async function runCompare(b) {
   await Promise.all([
     post('/api/halalbooking/search', q).then(set('halalbooking', d => ({ state: 'ok', panel: hbPanel(d, {}) }))),
     post('/api/tbo/search', { ...q, nationality }).then(set('tbo', d => d.status === 'not_mapped' ? { state: 'unmapped' } : d.status === 'currency_not_eur' ? { state: 'error', error: 'Devise ' + d.currency + ' (euro imposé)' } : { state: 'ok', panel: tboPanel(d, {}) })),
+    post('/api/ratehawk/search', { ...q, nationality }).then(set('ratehawk', d => d.status === 'not_mapped' ? { state: 'unmapped' } : d.status === 'currency_not_eur' ? { state: 'error', error: 'Devise ' + d.currency + ' (euro imposé)' } : { state: 'ok', panel: rhPanel(d, {}), env: d.environment })),
     post('/api/bedsonline/search', q).then(set('bedsonline', d => d.status === 'not_mapped' ? { state: 'unmapped' } : { state: 'ok', panel: bedsPanel(d, {}, q.rooms.length), env: d.environment })),
   ]);
   $('#cmp-status').textContent = `Relevé du ${new Date().toLocaleString('fr-FR')} · prix à reconfirmer chez le fournisseur avant toute décision.`;
@@ -310,10 +311,10 @@ function cmpCard(id, c, b) {
   const a = assessPanel(p, b);
   const amount = a.diff == null ? '' : `${a.diff < 0 ? '−' : '+'}${new Intl.NumberFormat('fr-FR', { style: 'currency', currency: b.purchase.currency }).format(Math.abs(a.diff))}`;
   const verdict = a.status === 'gain' ? `Gain potentiel ${amount}` : a.status === 'none' ? `Pas moins cher (${amount})` : `À vérifier${amount ? ' · écart ' + amount : ''}`;
-  const rooms = p.pick.flatMap(o => o.roomNames ?? [o.room ?? o.roomName ?? 'Chambre non renseignée']);
+  const rooms = p.pick.flatMap(o => o.roomNames ?? [o.roomName ?? o.room ?? 'Chambre non renseignée']);
   const free = p.pick.map(o => freeUntilOf(id, o));
   const cancel = free.some(t => t == null) ? 'Non remboursable ou conditions à vérifier' : 'Sans frais ' + fmtUtc(Math.min(...free));
-  const top = id === 'tbo' ? 'STAGING · TEST' : id === 'bedsonline' && c.env !== 'production' ? 'TEST · ÉVALUATION' : 'OFFRES RÉELLES';
+  const top = id === 'tbo' ? 'STAGING · TEST' : id === 'ratehawk' && c.env !== 'production' ? 'BAC À SABLE · TEST' : id === 'bedsonline' && c.env !== 'production' ? 'TEST · ÉVALUATION' : 'OFFRES RÉELLES';
   const label = id === 'tbo' ? 'Montant TBO (net à confirmer)' : p.netConfirmed ? 'Net agence' : 'Net estimé';
   return shell(top, `<div class="cmp-price">${esc(new Intl.NumberFormat('fr-FR', { style: 'currency', currency: p.currency ?? 'EUR' }).format(p.total))}</div><p class="subtle">${label} · total séjour · ${b.rooms.length} chambre(s)</p>
     <p><strong>${rooms.map(esc).join('<br>')}</strong></p><p>${esc(MEALS[p.mealCode] ?? 'Pension non reconnue')} · ${esc(cancel)}</p>
