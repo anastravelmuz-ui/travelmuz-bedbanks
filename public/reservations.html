@@ -1,0 +1,13 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TravelMuz · Réservations</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/live.css"><link rel="stylesheet" href="/reservations.css"></head><body>
+<header><a class="brand" href="/"><span class="brandmark">TM</span><span>TravelMuz <span class="brand-sub">agence</span></span></a><nav aria-label="Navigation principale"><a href="/">Comparateur</a><a class="selected" href="/reservations.html">Réservations</a></nav><span class="private">Espace privé</span></header>
+<main>
+<div class="page-heading"><div><p class="eyebrow">APRÈS LA RÉSERVATION</p><h1>Réservations</h1><p>Importez le voucher, vérifiez les informations lues, complétez le reste. Dossiers partagés entre les agents de l’agence.</p></div><button id="add" class="primary">＋ Ajouter une réservation</button></div>
+<div class="stats" id="stats"></div>
+<div class="list-toolbar"><label class="search-reservation">Rechercher<input id="q" placeholder="Référence, hôtel, client, confirmation…"></label><label>Afficher<select id="filter"><option value="all">Tous les dossiers</option><option value="free">Sans frais d’annulation</option><option value="fees">Frais en cours</option><option value="nonref">Non remboursables</option><option value="past">Séjours passés</option></select></label></div>
+<p id="count" class="subtle" role="status">Chargement…</p>
+<div class="table-wrap"><table><thead><tr><th>Dossier / hôtel</th><th>Client</th><th>Séjour</th><th>Prix d’achat</th><th>Début des frais</th><th>État</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty" hidden>Aucun dossier.</div></div>
+<div class="reservation-note"><strong>Consultation seule</strong><p>Enregistrer un dossier ne réserve, ne modifie ni n’annule rien chez le fournisseur. Le voucher est lu dans votre navigateur et n’est pas conservé. Pas encore de surveillance automatique ni d’email.</p></div>
+</main>
+<dialog id="modal" aria-labelledby="modal-title"><div class="modal-heading"><div id="modal-title"></div><button id="close-modal" class="icon-button" aria-label="Fermer">✕</button></div><div id="modal-body"></div></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<script type="module" src="/reservations.mjs"></script><script type="module" src="/session.mjs"></script></body></html>

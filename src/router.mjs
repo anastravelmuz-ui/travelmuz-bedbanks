@@ -13,6 +13,7 @@ import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hot
 // Temporaire (demande du 3/11/2026) : offres TBO hors EUR affichées pour les tests, signalées et non comparées.
 const ALLOW_NON_EUR = true;
 import { createD1MapStore, validateMapping } from '../server/hotel-map.mjs';
+import { validateBooking, createBookingStore } from '../server/bookings.mjs';
 
 export const FIRST_ADMIN_EMAIL = 'anas@travelmuz.fr'; // D-015
 
@@ -58,10 +59,10 @@ async function halalbookingSearch(request, env, user) {
   }
 }
 
-async function readJson(request) {
-  if (Number(request.headers.get('content-length') ?? 0) > 4096) throw new Error('BODY_TOO_LARGE');
+async function readJson(request, max = 4096) {
+  if (Number(request.headers.get('content-length') ?? 0) > max) throw new Error('BODY_TOO_LARGE');
   const raw = await request.text();
-  if (raw.length > 4096) throw new Error('BODY_TOO_LARGE');
+  if (raw.length > max) throw new Error('BODY_TOO_LARGE');
   return JSON.parse(raw);
 }
 const sameOrigin = request => request.headers.get('origin') === new URL(request.url).origin;
@@ -319,6 +320,28 @@ async function adminTbo(request, env, user, path, url) {
   return json({ error: 'NOT_FOUND' }, 404);
 }
 
+// ---- Module Réservations : dossiers partagés entre agents connectés ----
+const BOOKING_ID = /^[0-9a-f-]{36}$/;
+async function bookings(request, env, user, path) {
+  if (!user) return json({ error: 'AUTHENTICATION_REQUIRED' }, 401);
+  if (!env.DB) return json({ error: 'STORAGE_NOT_CONFIGURED' }, 503);
+  const store = createBookingStore(env.DB);
+  const id = path.slice('/api/bookings/'.length);
+  if (path === '/api/bookings' && request.method === 'GET') return json({ bookings: await store.list() });
+  if (request.method !== 'GET' && !sameOrigin(request)) return json({ error: 'ORIGIN_REJECTED' }, 403);
+  const body = async () => { try { return { data: validateBooking(await readJson(request, 32768)) }; } catch (e) { return { error: json({ error: 'INVALID_BOOKING', detail: e instanceof Error ? e.message : 'BODY_INVALID' }, 400) }; } };
+  if (path === '/api/bookings' && request.method === 'POST') { const b = await body(); return b.error ?? json({ booking: await store.create(b.data, user.email) }, 201); }
+  if (!BOOKING_ID.test(id)) return json({ error: 'NOT_FOUND' }, 404);
+  if (request.method === 'GET') { const r = await store.get(id); return r ? json({ booking: r }) : json({ error: 'NOT_FOUND' }, 404); }
+  if (request.method === 'PUT') { const b = await body(); if (b.error) return b.error; const r = await store.update(id, b.data, user.email); return r ? json({ booking: r }) : json({ error: 'NOT_FOUND' }, 404); }
+  if (request.method === 'DELETE') {
+    const r = await store.get(id); if (!r) return json({ error: 'NOT_FOUND' }, 404);
+    if (user.role !== 'admin' && r.createdBy !== user.email) return json({ error: 'FORBIDDEN' }, 403); // créateur ou administrateur
+    await store.remove(id); return json({ ok: true });
+  }
+  return json({ error: 'NOT_FOUND' }, 404);
+}
+
 export async function route(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -338,6 +361,7 @@ export async function route(request, env) {
   if (path === '/api/places/info') return secure(await placeInfo(env, user, url), { noStore: true });
   if (path.startsWith('/api/admin/catalog/')) return secure(await catalogAdmin(request, env, user, path), { noStore: true });
   if (path === '/api/admin/match') return secure(await matchSuggest(env, user, url), { noStore: true });
+  if (path === '/api/bookings' || path.startsWith('/api/bookings/')) return secure(await bookings(request, env, user, path), { noStore: true });
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/ratecomments') return secure(await bedsonlineRateComments(request, env, user, url), { noStore: true });
