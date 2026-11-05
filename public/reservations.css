@@ -11,3 +11,4 @@ dialog.wide-modal{width:min(1180px,95vw)}.dossier-banner{background:#eaf6f6;bord
 .dossier-assess{margin-top:10px;border-radius:12px;padding:9px 11px;background:#f5f7f9;color:#526277}.dossier-assess p{margin:4px 0 0;font-size:11px}.dossier-assess.gain{background:#e6f6ec;color:#1d6b3c}.dossier-assess.check{background:#fff8e6;color:#6b5000}
 .cmp-suggest{position:static;display:block;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:12px;margin:6px 0 0;padding:4px;list-style:none}.cmp-suggest li{padding:8px 10px;cursor:pointer;border-radius:8px}.cmp-suggest li:hover{background:var(--light)}.cmp-suggest li small{display:block;color:var(--muted)}
 @media(max-width:900px){.cmp-grid{grid-template-columns:1fr 1fr}}
+.cmp-suggest li.cmp-city{color:#0d808b;font-weight:600}

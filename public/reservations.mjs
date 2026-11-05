@@ -139,6 +139,7 @@ function openForm(existing = null, draft = null, marks = new Set(), readInfo = '
       ${select('offset', 'Décalage UTC à cette échéance *', [['', 'À confirmer'], ...OFFSETS.map(o => [o, 'UTC' + o])], b.offset, 'deadline')}
       ${input('noShow', 'Non-présentation', b.noShow, { cls: 'wide', attrs: 'maxlength="120"' })}
     </div>
+    <p class="subtle deadline"><button type="button" class="text-button" id="offset-prudent">Choisir UTC+14:00 (le plus prudent)</button> · UTC−12:00 est au contraire le moins prudent.</p>
     <p class="subtle" id="deadline-hint">${esc(b.deadlineHint ?? 'Recopiez l’heure et le décalage indiqués par le fournisseur. Ne déduisez pas le fuseau de celui de l’agence.')}</p>
   </div>
   <div class="bk-section"><label class="wide">Notes internes<textarea name="notes" rows="2" maxlength="2000">${esc(b.notes ?? '')}</textarea></label></div>
@@ -155,6 +156,7 @@ function openForm(existing = null, draft = null, marks = new Set(), readInfo = '
     });
   };
   const toggleDeadline = () => { form.querySelectorAll('.deadline').forEach(l => { l.hidden = form.nonRefundable.checked; }); highlight(); };
+  $('#offset-prudent').onclick = () => { form.offset.value = '+14:00'; highlight(); };
   form.nonRefundable.onchange = toggleDeadline; form.oninput = highlight; toggleDeadline();
   const rebindRows = () => {
     form.querySelectorAll('[data-remove-room]').forEach(btn => { btn.onclick = () => { btn.closest('.bk-room').remove(); }; });
@@ -245,12 +247,29 @@ async function openCompare(b) {
     const look = () => { clearTimeout(t); t = setTimeout(async () => {
       const q = $('#cmp-q').value.trim(); if (q.length < 2) return;
       const d = await api('/api/places/suggest?q=' + encodeURIComponent(q)).catch(() => ({ hotels: [] }));
-      $('#cmp-sugg').innerHTML = (d.hotels ?? []).map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc([h.city, h.country].filter(Boolean).join(', '))}</small></li>`).join('') || '<li class="group">Aucun hôtel trouvé : essayez le début du nom.</li>';
-      $('#cmp-sugg').querySelectorAll('[data-h]').forEach(li => { li.onclick = async () => {
+      $('#cmp-sugg').innerHTML = (d.hotels ?? []).map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc([h.city, h.country].filter(Boolean).join(', '))}</small></li>`).join('')
+        + (b.city ? `<li data-city="1" class="cmp-city">🔎 Chercher « ${esc(q)} » parmi les hôtels Halalbooking disponibles à ${esc(b.city)} (quelques secondes)</li>` : (d.hotels ?? []).length ? '' : '<li class="group">Aucun hôtel trouvé dans le catalogue : essayez le début du nom.</li>');
+      const city = $('#cmp-sugg').querySelector('[data-city]');
+      if (city) city.onclick = async () => {
+        city.textContent = 'Recherche dans les hôtels Halalbooking de ' + b.city + '…';
+        const words = norm(q).split(/\s+/).filter(w => w.length > 1);
+        const hits = [];
+        for (let page = 1; page <= 15; page++) { // destination : 20 hôtels par page, disponibles aux dates du dossier
+          const r = await fetch('/api/halalbooking/destination', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: b.city, checkin: b.checkin, checkout: b.checkout, rooms: b.rooms.map(x => ({ adults: x.adults, children: [...x.childrenAges] })), country: $('#cmp-country').value, page }) }).then(x => x.ok ? x.json() : null).catch(() => null);
+          if (!r) break;
+          for (const h of r.hotels ?? []) if (words.every(w => norm(h.name).includes(w))) hits.push({ id: h.id, name: h.name, city: b.city, country: b.country });
+          if (page >= (r.totalPages ?? 1)) break;
+        }
+        d.hotels = hits;
+        $('#cmp-sugg').innerHTML = hits.map((h, i) => `<li data-h="${i}">${esc(h.name)}<small>${esc(b.city)} · disponible aux dates du dossier</small></li>`).join('') || `<li class="group">Aucun hôtel Halalbooking disponible à ${esc(b.city)} ne correspond à « ${esc(q)} » aux dates du dossier. La comparaison reste impossible sans cet hôtel.</li>`;
+        bindHits();
+      };
+      const bindHits = () => $('#cmp-sugg').querySelectorAll('[data-h]').forEach(li => { li.onclick = async () => {
         const h = d.hotels[Number(li.dataset.h)];
         try { const r = await api(`/api/bookings/${b.id}/hotel`, { method: 'POST', body: JSON.stringify({ hbPlaceId: h.id }) }); b = r.booking; bookings = bookings.map(x => x.id === b.id ? b : x); drawHotel(); $('#cmp-run').disabled = false; runCompare(b); }
         catch (e) { $('#cmp-status').textContent = 'Rattachement impossible (' + e.message + ').'; }
       }; });
+      bindHits();
     }, 200); };
     $('#cmp-q').oninput = look; look();
   };
