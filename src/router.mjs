@@ -243,7 +243,7 @@ async function tboSearch(request, env, user) {
       r.detailsAvailable = !!details;
     }
     return json({ ...r, criteria, mapping: { code: mapping.code, name: mapping.name } });
-  } catch (e) { return json({ error: supplierError(e) }, 502); }
+  } catch (e) { return json({ error: supplierError(e), supplierStatus: e?.supplierStatus ?? null, mapping: { code: mapping.code, name: mapping.name } }, 502); }
 }
 
 async function bedsonlineSearch(request, env, user) {

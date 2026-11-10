@@ -17,6 +17,12 @@ export function tboConfig(env) {
   return { base, search, username: env.TBO_USERNAME, password: env.TBO_PASSWORD };
 }
 
+/** Erreur fournisseur avec diagnostic affichable (code et message TBO, jamais d'identifiants ni de contenu de requête). */
+function supplierFailure(code, description) {
+  const e = new Error('SUPPLIER_ERROR');
+  e.supplierStatus = { code: code ?? null, description: String(description ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200) };
+  return e;
+}
 async function post(url, body, cfg, fetcher, timeoutMs) {
   let target;
   try { target = new URL(url); } catch { throw new Error('CONFIGURATION_MISSING'); }
@@ -30,7 +36,7 @@ async function post(url, body, cfg, fetcher, timeoutMs) {
     });
   } catch { throw new Error('SUPPLIER_UNREACHABLE'); }
   if (response.status === 401 || response.status === 403) throw new Error('SUPPLIER_AUTH_FAILED');
-  if (!response.ok) throw new Error('SUPPLIER_ERROR');
+  if (!response.ok) throw supplierFailure('HTTP ' + response.status, '');
   let data;
   try { data = await response.json(); } catch { throw new Error('SUPPLIER_INVALID_RESPONSE'); }
   const code = data?.Status?.Code;
@@ -89,7 +95,7 @@ export async function searchTbo(q, hotelCode, nationality, cfg, fetcher = fetch,
   // TBO renvoie un code non-200 quand aucune chambre n'est disponible : absence d'offre ≠ panne.
   if (code !== 200) {
     if (code === 201 || /no (available )?(hotel|room)s?|not available/i.test(String(data?.Status?.Description ?? ''))) return { ...base, status: 'no_availability', offers: [] };
-    throw new Error('SUPPLIER_ERROR');
+    throw supplierFailure(code, data?.Status?.Description);
   }
   if (!Array.isArray(data.HotelResult)) throw new Error('SUPPLIER_INVALID_RESPONSE');
   const offers = [];

@@ -218,7 +218,7 @@ function panelBody(id) {
   // TBO
   if (!tbo) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Prêt à rechercher.</div>' };
   if (tbo.loading) return { top: 'STAGING · DONNÉES DE TEST', html: '<div class="state">Recherche en cours…</div>' };
-  if (tbo.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>` };
+  if (tbo.error) return { top: 'ERREUR FOURNISSEUR', html: `<div class="state">${esc(TBO_ERRORS[tbo.error] ?? ERRORS[tbo.error] ?? 'La recherche TBO n’a pas abouti. Ce n’est pas une absence de chambres.')}</div>${tbo.supplierStatus ? `<p class="tbo-warn">Réponse TBO : code ${esc(tbo.supplierStatus.code ?? '?')}${tbo.supplierStatus.description ? ' — « ' + esc(tbo.supplierStatus.description) + ' »' : ''}</p>` : ''}${tbo.mapping?.code ? `<p class="subtle">Hôtel TBO interrogé : ${esc(tbo.mapping.name ?? 'nom non enregistré')} (code ${esc(tbo.mapping.code)})${isAdmin ? ' · <a href="/admin.html">modifier l’association</a>' : ''}</p>` : ''}` };
   if (tbo.status === 'not_mapped') return { top: 'STAGING · DONNÉES DE TEST', html: `<div class="state">Hôtel pas encore associé à un code TBO. ${mapLink('tbo')}</div>` };
   if (tbo.status === 'currency_not_eur') return { top: 'DEVISE NON CONFORME', html: `<div class="state">TBO renvoie des tarifs en ${esc(tbo.currency)} (devise du compte TBO). L’euro est imposé : ${plural(tbo.hidden ?? 0, 'offre')} masquée(s), sans conversion. Demandez à TBO de configurer votre compte en EUR.</div>` };
   const p = panels.tbo;
@@ -459,9 +459,9 @@ async function searchHotel() {
   $('#criteria').textContent = `${q.checkin} → ${q.checkout} · ${n} nuit${n > 1 ? 's' : ''} · ${q.rooms.map((x, i) => `ch. ${i + 1} : ${roomLabel(x)}`).join(' ; ')} · pays ${q.country} · nationalité ${nationality}`;
   render();
   const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(async r => { const d = await r.json().catch(() => ({})); return r.ok ? { ok: true, d } : { ok: false, error: d.detail || d.error || 'SUPPLIER_ERROR' }; })
+    .then(async r => { const d = await r.json().catch(() => ({})); return r.ok ? { ok: true, d } : { ok: false, error: d.detail || d.error || 'SUPPLIER_ERROR', supplierStatus: d.supplierStatus ?? null, mapping: d.mapping ?? null }; })
     .catch(() => ({ ok: false, error: 'NETWORK' }));
-  const tboRun = post('/api/tbo/search', { ...q, nationality }).then(r => { tbo = r.ok ? r.d : { error: r.error }; render(); });
+  const tboRun = post('/api/tbo/search', { ...q, nationality }).then(r => { tbo = r.ok ? r.d : { error: r.error, supplierStatus: r.supplierStatus, mapping: r.mapping }; render(); });
   const hbRun = post('/api/halalbooking/search', q).then(r => {
     if (r.ok) {
       snapshot = r.d; hbState = null;

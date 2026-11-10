@@ -42,6 +42,8 @@ test('absence d’offre ≠ panne ; erreurs fournisseur explicites', async () =>
   assert.deepEqual([none.status, none.offers.length], ['no_availability', 0]);
   await assert.rejects(searchTbo(q, '1', 'FR', cfg, async () => Response.json({ Status: { Code: 401, Description: 'Access Credentials is incorrect' } })), /SUPPLIER_AUTH_FAILED/);
   await assert.rejects(searchTbo(q, '1', 'FR', cfg, async () => Response.json({ Status: { Code: 500, Description: 'Unexpected' } })), /SUPPLIER_ERROR/);
+  await assert.rejects(searchTbo(q, '1', 'FR', cfg, async () => Response.json({ Status: { Code: 400, Description: 'Invalid HotelCodes\n' } })), e => e.supplierStatus.code === 400 && e.supplierStatus.description === 'Invalid HotelCodes');
+  await assert.rejects(searchTbo(q, '1', 'FR', cfg, async () => new Response('erreur', { status: 500 })), e => e.supplierStatus.code === 'HTTP 500' && e.supplierStatus.description === '');
   await assert.rejects(searchTbo(q, '1', 'FR', cfg, async () => { throw new Error('dns'); }), /SUPPLIER_UNREACHABLE/);
   await assert.rejects(searchTbo(q, '1', 'FR', null), /CONFIGURATION_MISSING/);
 });
