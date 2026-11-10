@@ -14,6 +14,7 @@ import { hotelbedsConfig, searchHotelbeds, hotelbedsStatus, hotelbedsHotels, hot
 const ALLOW_NON_EUR = true;
 import { createD1MapStore, validateMapping } from '../server/hotel-map.mjs';
 import { validateBooking, createBookingStore } from '../server/bookings.mjs';
+import { getEurRates } from '../server/fx.mjs';
 import { ratehawkConfig, ratehawkSuggest, ratehawkHotelInfo, searchRatehawk, RATEHAWK_ERRORS } from '../server/ratehawk.mjs';
 
 export const FIRST_ADMIN_EMAIL = 'anas@travelmuz.fr'; // D-015
@@ -403,6 +404,11 @@ export async function route(request, env) {
   if (path.startsWith('/api/admin/catalog/')) return secure(await catalogAdmin(request, env, user, path), { noStore: true });
   if (path === '/api/admin/match') return secure(await matchSuggest(env, user, url), { noStore: true });
   if (path === '/api/bookings' || path.startsWith('/api/bookings/')) return secure(await bookings(request, env, user, path), { noStore: true });
+  if (path === '/api/fx' && request.method === 'GET') {
+    if (!user) return secure(json({ error: 'AUTHENTICATION_REQUIRED' }, 401));
+    try { return secure(Response.json(await getEurRates(), { headers: { 'Cache-Control': 'private, max-age=3600' } })); }
+    catch { return secure(json({ error: 'FX_UNAVAILABLE' }, 502)); }
+  }
   if (path === '/api/tbo/search') return secure(await tboSearch(request, env, user), { noStore: true });
   if (path === '/api/ratehawk/search') return secure(await ratehawkSearch(request, env, user), { noStore: true });
   if (path === '/api/bedsonline/search') return secure(await bedsonlineSearch(request, env, user), { noStore: true });
